@@ -2,14 +2,16 @@
 
 All notable changes to the TrustBridge SDK are recorded here per release stream.
 
-## v3.4.0 (development)
+## v3.4.x
 
-> In development on `development/v3.4.0`. Subject to change until the release branch is cut.
+### v3.4.0 — 2026-02-17
 
-#### Planned
+Fourth stream of the v3.x TrustBridge platform. Cut from `development/v3.4.0` at code freeze.
+
+#### Added
 
 * Linux host SDK (Ubuntu 22.04+, Debian 12+).
-* WebAssembly SDK build for browser-embedded integrations.
+* WebAssembly SDK build for browser-embedded integrations (`SDK/src/wasm.ts`).
 * Post-quantum attestation (Dilithium) alongside Ed25519.
 * Gateway v4 protocol with bidirectional control channel.
 * `TrustBridge BE` v3/v4 dual stack for the migration window.

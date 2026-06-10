@@ -1,13 +1,13 @@
-# Compatibility Matrix — v3.4.0 (development)
+# Compatibility Matrix — v3.4.x
 
 ## Release Stream Status
 
-| Release Branch     | Latest Tag | Status              |
-| ------------------ | ---------- | ------------------- |
-| release/v3.1.0     | v3.1.1     | Maintenance Support |
-| release/v3.2.0     | v3.2.2     | Active Support      |
-| release/v3.3.0     | v3.3.2     | Active Support      |
-| development/v3.4.0 | —          | In Development      |
+| Release Branch | Latest Tag | Status              |
+| -------------- | ---------- | ------------------- |
+| release/v3.1.0 | v3.1.1     | Maintenance Support |
+| release/v3.2.0 | v3.2.2     | Maintenance Support |
+| release/v3.3.0 | v3.3.2     | Active Support      |
+| release/v3.4.0 | v3.4.0     | Active Support      |
 
 ## SDK ↔ Gateway ↔ Firmware
 
@@ -18,7 +18,7 @@
 | v3.3.x      | 3.3+            | 3.x             |
 | v3.4.x      | 3.4+            | 4.x             |
 
-## OS Compatibility (planned)
+## OS Compatibility
 
 | Component       | Platform | Minimum Version  |
 | --------------- | -------- | ---------------- |
