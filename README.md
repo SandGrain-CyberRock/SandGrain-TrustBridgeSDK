@@ -1,8 +1,8 @@
-# TrustBridge SDK — v3.4.0 (development)
+# TrustBridge SDK — v3.4.x
 
 TrustBridge is Sandgrain's secure device-to-cloud bridge platform. It provides identity verification, attested device handshake, biometric authentication, and encrypted telemetry between embedded devices and the Sandgrain cloud.
 
-This branch is the **active development line** for the upcoming v3.4 release stream.
+This branch is the **v3.4.x release stream**, cut from `development/v3.4.0` at code freeze.
 
 This repository contains the three deliverables that make up a TrustBridge release stream:
 
@@ -12,7 +12,14 @@ This repository contains the three deliverables that make up a TrustBridge relea
 | `TrustBridge FE` | Device-side firmware client that runs on the embedded gateway.     |
 | `TrustBridge BE` | Cloud-side service that terminates device sessions and brokers data. |
 
-## What's planned for v3.4.0
+## Release Stream
+
+```text
+release/v3.4.0
+└── v3.4.0   — initial release
+```
+
+## What's new in v3.4.x
 
 * **Linux host SDK** — Ubuntu 22.04+ and Debian 12+ as first-class FE targets.
 * **WebAssembly SDK** — browser-embeddable SDK build for in-page TrustBridge integrations.
