@@ -1,0 +1,11 @@
+{
+  "name": "@sandgrain/trustbridge-be",
+  "version": "3.2.0",
+  "description": "Cloud broker for the TrustBridge platform.",
+  "main": "src/server.ts",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@sandgrain/trustbridge-sdk": "3.2.x"
+  }
+}
