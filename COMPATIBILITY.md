@@ -1,17 +1,15 @@
-# Compatibility Matrix
+# Compatibility Matrix — v3.4.0 (development)
 
-This document describes platform compatibility and support status for SDK releases.
+## Release Stream Status
 
-## Supported Release Streams
+| Release Branch     | Latest Tag | Status              |
+| ------------------ | ---------- | ------------------- |
+| release/v3.1.0     | v3.1.1     | Maintenance Support |
+| release/v3.2.0     | v3.2.2     | Active Support      |
+| release/v3.3.0     | v3.3.2     | Active Support      |
+| development/v3.4.0 | —          | In Development      |
 
-| Release Branch     | Latest Version | Status              |
-| ------------------ | -------------- | ------------------- |
-| release/v3.1.0     | v3.1.1         | Maintenance Support |
-| release/v3.2.0     | v3.2.2         | Active Support      |
-| release/v3.3.0     | v3.3.2         | Active Support      |
-| development/v3.4.0 | N/A            | In Development      |
-
-## Platform Compatibility
+## SDK ↔ Gateway ↔ Firmware
 
 | SDK Version | Device Firmware | Gateway Version |
 | ----------- | --------------- | --------------- |
@@ -20,40 +18,23 @@ This document describes platform compatibility and support status for SDK releas
 | v3.3.x      | 3.3+            | 3.x             |
 | v3.4.x      | 3.4+            | 4.x             |
 
-## Compatibility Policy
+## OS Compatibility (planned)
 
-### Within a Release Stream
+| Component       | Platform | Minimum Version  |
+| --------------- | -------- | ---------------- |
+| TrustBridge FE  | iOS      | 16.0             |
+| TrustBridge FE  | Android  | 10.0 (API 29)    |
+| TrustBridge FE  | Windows  | 11               |
+| TrustBridge FE  | Linux    | Ubuntu 22.04     |
+| TrustBridge FE  | Linux    | Debian 12        |
+| TrustBridge FE  | Browser  | WASM (Chromium 110+, Firefox 110+, Safari 16.4+) |
+| TrustBridge BE  | Linux    | Ubuntu 22.04     |
+| TrustBridge BE  | Linux    | Debian 12        |
+| SDK (host SDK)  | macOS    | 13.0 (Ventura)   |
+| SDK (host SDK)  | Windows  | 11               |
 
-Versions within the same release stream are fully compatible.
+## Migration Notes
 
-Examples:
-
-```text
-v3.2.0 → v3.2.1
-v3.2.1 → v3.2.2
-
-v3.3.0 → v3.3.1
-v3.3.1 → v3.3.2
-```
-
-No application changes are required.
-
-### Across Release Streams
-
-Migration testing is recommended when upgrading between release streams.
-
-Examples:
-
-```text
-v3.1.x → v3.2.x
-v3.2.x → v3.3.x
-```
-
-## End of Support Policy
-
-Older release branches may continue to receive:
-
-* Critical bug fixes
-* Security patches
-
-New features are developed only in the active development branch and future release streams.
+* Cross-stream upgrade `v3.3.x → v3.4.x` is **not drop-in**: device firmware must be updated to 3.4+ and re-enrolled against the v4 gateway.
+* `TrustBridge BE` v3.4.x ships a v3/v4 dual stack — operators can run mixed-version fleets during rollout.
+* WebAssembly target is currently CSP-restricted; embedders must allow `wasm-unsafe-eval` for the duration of v3.4.x.

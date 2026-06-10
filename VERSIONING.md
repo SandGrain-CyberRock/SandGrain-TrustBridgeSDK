@@ -1,157 +1,57 @@
-# SDK Versioning and Release Management
+# TrustBridge SDK — Changelog
 
-## Overview
+All notable changes to the TrustBridge SDK are recorded here per release stream.
 
-The Sandgrain SDK follows a release-stream-based versioning strategy.
+## v3.4.0 (development)
 
-A dedicated release branch is created for each SDK release stream, while Git tags are used to identify released versions, maintenance updates, and bug-fix releases within that stream.
+> In development on `development/v3.4.0`. Subject to change until the release branch is cut.
 
-## Branch Structure
+#### Planned
 
-### Development Branch
+* Linux host SDK (Ubuntu 22.04+, Debian 12+).
+* WebAssembly SDK build for browser-embedded integrations.
+* Post-quantum attestation (Dilithium) alongside Ed25519.
+* Gateway v4 protocol with bidirectional control channel.
+* `TrustBridge BE` v3/v4 dual stack for the migration window.
 
-A single development branch is maintained for the next planned SDK release.
+#### Breaking
 
-Example:
+* Gateway protocol bumped from v3 to v4 — v3.3.x devices require firmware update to enroll against v3.4 BE.
 
-```text
-development/v3.4.0
-```
+## v3.3.x
 
-The development branch contains:
+### v3.3.2 — 2025-12-04
 
-* New features
-* Enhancements
-* Ongoing development work
-* Future SDK improvements
+* OTel span context propagation fix; Windows host locale crash.
 
-### Release Branches
+### v3.3.1 — 2025-10-28
 
-Each SDK release stream is maintained in a dedicated release branch.
+* Configurable BE session pool; backpressure propagation fix.
 
-Examples:
+### v3.3.0 — 2025-09-30
 
-```text
-release/v3.1.0
-release/v3.2.0
-release/v3.3.0
-```
+* Windows host SDK, BE session pool, streaming telemetry, OTel propagation.
 
-Release branches are considered stable and production-ready.
+## v3.2.x
 
-They may receive:
+### v3.2.2 — 2025-08-21
 
-* Bug fixes
-* Security updates
-* Maintenance improvements
-* Minor non-breaking enhancements
+* Biometric prompt cancellation race fix.
 
-## Tagging Strategy
+### v3.2.1 — 2025-07-09
 
-Tags identify released versions within a release stream.
+* Configurable biometric timeout.
 
-### Release Stream Example
+### v3.2.0 — 2025-06-12
 
-```text
-release/v3.2.0
-├── v3.2.0
-├── v3.2.1
-└── v3.2.2
-```
+* Biometric authentication, macOS host SDK, replay-protected handshake.
 
-### Tag Types
+## v3.1.x
 
-#### Initial Release Tag
+### v3.1.1 — 2025-04-02
 
-```text
-v3.2.0
-```
+* Handshake retry loop fix; `libsodium` CVE patch.
 
-Represents the first production release for the release stream.
+### v3.1.0 — 2025-02-18
 
-#### Maintenance Release Tag
-
-```text
-v3.2.1
-v3.2.2
-```
-
-Represents:
-
-* Bug fixes
-* Security updates
-* Minor enhancements
-
-No breaking changes should be introduced through maintenance tags.
-
-## Release Lifecycle
-
-### Step 1 – Development
-
-New functionality is developed in the active development branch.
-
-Example:
-
-```text
-development/v3.4.0
-```
-
-### Step 2 – Release Branch Creation
-
-When development is complete, a release branch is created.
-
-Example:
-
-```text
-release/v3.4.0
-```
-
-### Step 3 – Initial Release
-
-The first release tag is published.
-
-Example:
-
-```text
-v3.4.0
-```
-
-### Step 4 – Maintenance Releases
-
-Additional updates are published using tags.
-
-Example:
-
-```text
-v3.4.1
-v3.4.2
-```
-
-These tags remain associated with the same release branch.
-
-## Supported Release Streams
-
-Example:
-
-```text
-release/v3.1.0
-release/v3.2.0
-release/v3.3.0
-```
-
-Multiple release branches may be supported simultaneously.
-
-This enables:
-
-* Customer-specific support
-* Long-term maintenance
-* Security patching
-* Controlled upgrade paths
-
-## Best Practices
-
-* Only one active development branch should exist at a time.
-* Every production release must be identified by a Git tag.
-* Release branches should remain stable after creation.
-* Maintenance updates should be delivered through additional tags.
-* Critical fixes should be applied to the appropriate release branch and tagged accordingly.
+* Initial public release of the v3.x TrustBridge platform.

@@ -1,79 +1,39 @@
-# SDK-Versioning-Practice
-Demonstration repository for enterprise SDK version management, release branching, tagging strategy, and compatibility management.
+# TrustBridge SDK — v3.4.0 (development)
 
-## Repository Overview
+TrustBridge is Sandgrain's secure device-to-cloud bridge platform. It provides identity verification, attested device handshake, biometric authentication, and encrypted telemetry between embedded devices and the Sandgrain cloud.
 
-This repository follows a release-branch-based versioning strategy.
+This branch is the **active development line** for the upcoming v3.4 release stream.
 
-### Active Branches
+This repository contains the three deliverables that make up a TrustBridge release stream:
 
-```text
-main
-development/v3.4.0
+| Component        | Description                                                        |
+| ---------------- | ------------------------------------------------------------------ |
+| `SDK`            | Shared client SDK consumed by FE and BE — protocol, crypto, types. |
+| `TrustBridge FE` | Device-side firmware client that runs on the embedded gateway.     |
+| `TrustBridge BE` | Cloud-side service that terminates device sessions and brokers data. |
 
-release/v3.1.0
-release/v3.2.0
-release/v3.3.0
-```
+## What's planned for v3.4.0
 
-### Released Versions
-
-```text
-v3.1.0
-v3.1.1
-
-v3.2.0
-v3.2.1
-v3.2.2
-
-v3.3.0
-v3.3.1
-v3.3.2
-```
+* **Linux host SDK** — Ubuntu 22.04+ and Debian 12+ as first-class FE targets.
+* **WebAssembly SDK** — browser-embeddable SDK build for in-page TrustBridge integrations.
+* **Gateway v4 protocol** — backwards-incompatible handshake bump; `TrustBridge BE` ships a v3/v4 dual stack during the migration window.
+* **Post-quantum signatures** — Dilithium attestation alongside existing Ed25519.
+* **Streaming control channel** — bidirectional commands from BE to FE.
 
 ## Branch Strategy
 
-### Development Branch
-
-The development branch contains features planned for the next release stream.
-
-Example:
-
-```text
-development/v3.4.0
-```
-
-### Release Branches
-
-Each release stream is maintained in its own release branch.
-
-Examples:
-
-```text
-release/v3.1.0
-release/v3.2.0
-release/v3.3.0
-```
-
-Release branches may receive:
-
-* Minor enhancements
-* Bug fixes
-* Security updates
-* Maintenance releases
+| Branch                       | Purpose                                            |
+| ---------------------------- | -------------------------------------------------- |
+| `main`                       | Stable trunk pointing at the latest released stream |
+| `development/v3.4.0`         | Active development for the v3.4 stream             |
+| `release/v3.1.0`             | Maintenance (security only)                        |
+| `release/v3.2.0`             | Active support                                     |
+| `release/v3.3.0`             | Active support                                     |
+| `release/v3.4.0`             | Cut from `development/v3.4.0` at code-freeze       |
+| `hotfix/*`                   | Off the matching release branch                    |
+| `feature/*`                  | Off the active development branch                  |
 
 ## Documentation
 
-* VERSIONING.md – Versioning and release process
-* COMPATIBILITY.md – SDK compatibility matrix
-
-## Support Policy
-
-The latest release stream receives active development and maintenance.
-
-Older release streams receive:
-
-* Critical bug fixes
-* Security updates
-
-No new features are added to legacy release streams.
+* `VERSIONING.md` — release stream and tagging strategy
+* `COMPATIBILITY.md` — supported firmware, OS, and gateway versions

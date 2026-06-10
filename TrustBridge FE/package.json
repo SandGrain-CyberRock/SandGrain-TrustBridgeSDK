@@ -1,0 +1,11 @@
+{
+  "name": "@sandgrain/trustbridge-fe",
+  "version": "3.4.0-dev",
+  "description": "Device-side client for the TrustBridge platform.",
+  "main": "src/client.ts",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@sandgrain/trustbridge-sdk": "3.4.x"
+  }
+}
