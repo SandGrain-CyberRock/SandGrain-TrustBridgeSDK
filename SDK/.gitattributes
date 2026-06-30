@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings even on Windows checkouts: they run under
+# bash/WSL, where a trailing CR makes bash misread directives such as
+# `set -o pipefail` (error: "invalid option name ...: pipefail"). Without this,
+# core.autocrlf=true rewrites them to CRLF on checkout and setup.ps1 -> WSL fails.
+*.sh text eol=lf

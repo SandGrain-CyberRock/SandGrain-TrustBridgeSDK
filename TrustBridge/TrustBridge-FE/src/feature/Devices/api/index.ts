@@ -1,0 +1,22 @@
+export const DEVICE_API = {
+  GET_ALL: '/api/devices',
+  GET_ONE: '/api/devices/:id',
+  CREATE: '/api/devices',
+  UPDATE: '/api/devices/:id',
+  DELETE: '/api/devices/:id',
+  IMPORT: '/api/devices/bulk-import',
+  BULK_AUTHENTICATE: '/api/devices/bulk-authenticate',
+  EXPORT: '/api/devices/export',
+  MOVE: '/api/devices/move/to-authenticated',
+  STATUS_COUNTS: '/api/devices/status-counts',
+  GET_LOGS: '/api/devices/:id/logs',
+  CHECK_CONNECTIVITY: '/api/devices/:id/connectivity',
+  RUN_PROCESS: '/api/devices/:id/run-process',
+  // Lifecycle
+  LIFECYCLE_BULK_AUTH: '/api/devices/lifecycle/bulk-auth',
+  LIFECYCLE_TENANT_USERS: '/api/devices/lifecycle/tenant-users',
+  LIFECYCLE_IOT_USERS: '/api/devices/lifecycle/iot-users',
+  DEVICE_GROUPS: '/api/device-groups',
+  TID_STATUS: '/api/devices/:id/tid-status',
+  UPDATE_LIFECYCLE: '/api/devices/:id/lifecycle',
+};

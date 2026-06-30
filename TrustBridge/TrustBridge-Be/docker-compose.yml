@@ -1,0 +1,80 @@
+# =============================================================================
+# TrustBridge-Be — backend + MySQL + Mosquitto
+#
+# Self-contained: `docker compose up --build` from this directory works
+# regardless of where this repo lives on disk.
+#
+# Reads .env (your existing dev .env file works as-is). Compose-internal
+# hostnames (mysql/mosquitto) are forced via `environment:` overrides so
+# DB_HOST=localhost in your dev .env doesn't break the container.
+#
+# Joins external network `trustbridge-net` so FE / Cloud SDK (in their own
+# repos) can reach `be`, `mysql`, `mosquitto` by name.
+#
+# Bootstrap once on the host:
+#   docker network create trustbridge-net
+# =============================================================================
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tb-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASS}
+      MYSQL_DATABASE: ${DB_NAME}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks: [trustbridge-net]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_PASS}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: tb-mosquitto
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+    networks: [trustbridge-net]
+
+  be:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tb-be
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      # Override host-relative values for the container network
+      DB_HOST: mysql
+      DB_PORT: 3306
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - be_seed_state:/app/.seed-state
+    networks: [trustbridge-net]
+
+volumes:
+  mysql_data:
+  mosquitto_data:
+  be_seed_state:
+
+networks:
+  trustbridge-net:
+    external: true

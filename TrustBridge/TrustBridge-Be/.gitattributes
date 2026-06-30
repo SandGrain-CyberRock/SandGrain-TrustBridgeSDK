@@ -1,0 +1,18 @@
+# Force LF line endings on files that run inside Linux containers.
+#
+# Windows users with `core.autocrlf=true` (the default) would otherwise have
+# git rewrite these to CRLF on checkout. Linux can't parse a shebang line
+# `#!/bin/bash\r\n` — the trailing CR makes the kernel look for an interpreter
+# named "/bin/bash\r" and fail with "no such file or directory" (which is
+# misleading; the script file itself does exist).
+#
+# Applies on commit AND on checkout; existing tree should be renormalised with:
+#   git add --renormalize .
+#   git commit -m "Renormalize line endings per .gitattributes"
+
+*.sh                text eol=lf
+Dockerfile          text eol=lf
+docker-entrypoint.sh  text eol=lf
+*.dockerignore      text eol=lf
+
+# Anything else: let git decide (default behaviour).

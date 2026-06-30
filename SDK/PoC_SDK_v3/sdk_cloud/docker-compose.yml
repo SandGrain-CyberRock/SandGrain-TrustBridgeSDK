@@ -1,0 +1,76 @@
+services:
+  # In the INTEGRATED TrustBridge stack (TrustBridge-BE/start-all.*), the single
+  # MQTT broker is mosquitto (tb-mosquitto) on the shared `trustbridge-net`
+  # network, published on host port 1883. The cloud app connects to it by
+  # service name (MQTT_HOST=mosquitto in application_PoC_MQTT/.env).
+  #
+  # This bundled EMQX broker is therefore ONLY for STANDALONE runs of sdk_cloud
+  # (cloud without the BE stack). It is gated behind the `standalone` profile so
+  # `docker compose up` does NOT start it (that would collide with mosquitto on
+  # host port 1883). To run sdk_cloud by itself with its own broker:
+  #     docker compose --profile standalone up   (and set MQTT_HOST=localhost)
+  emqx:
+    image: emqx/emqx-enterprise:6.1.0
+    container_name: emqx-enterprise
+    hostname: node1.emqx.com
+    restart: always
+    profiles: ["standalone"]
+
+    environment:
+      - EMQX_NODE_NAME=emqx@node1.emqx.com
+
+    ports:
+      - "1883:1883"
+      - "8883:8883"
+      - "8083:8083"
+      - "8084:8084"
+      - "18083:18083"
+
+    volumes:
+      - ./data:/opt/emqx/data
+      - ./log:/opt/emqx/log
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18083/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+
+  sandgrain-cloud-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sandgrain-cloud-app
+    restart: always
+
+    # No depends_on the bundled emqx: in the integrated stack the broker is
+    # mosquitto (started first by start-all). The app reconnects with backoff if
+    # the broker isn't ready yet.
+    networks:
+      - trustbridge-net
+
+    env_file:
+      - ./application_PoC_MQTT/.env
+
+    # Credential mode is LAUNCHER-driven (overrides whatever is in .env):
+    #   start-all.{sh,ps1} export CREDENTIALS_SOURCE=trustbridge + BE_URL, so the
+    #   integrated stack always resolves creds from the BE database.
+    #   A raw `docker compose [--profile standalone] up` sets neither, so it
+    #   defaults to standalone (creds from device_credentials.json).
+    environment:
+      - CREDENTIALS_SOURCE=${CREDENTIALS_SOURCE:-standalone}
+      - BE_URL=${BE_URL:-}
+
+    volumes:
+      - ./application_PoC_MQTT/device_credentials.json:/app/application_PoC_MQTT/device_credentials.json
+
+    command: python -m app.main
+
+
+networks:
+  # Shared with the BE stack (mysql + mosquitto + be). Created by start-all
+  # (docker network create trustbridge-net) before bring-up.
+  trustbridge-net:
+    external: true

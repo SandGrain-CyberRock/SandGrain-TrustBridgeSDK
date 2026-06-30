@@ -1,0 +1,32 @@
+# =============================================================================
+# Cloud SDK — SandGrain cloud-side MQTT listener (BE-integrated)
+#
+# Uses the TrustBridge BE stack's shared Mosquitto broker (`mosquitto` on the
+# external `trustbridge-net` network) — it does NOT run its own broker.
+# Bring the BE stack up first (it owns mysql + mosquitto + the network).
+# =============================================================================
+
+services:
+  cloud-sdk:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sandgrain-cloud-app
+    restart: always
+
+    env_file:
+      - ./application_PoC_MQTT/.env
+    environment:
+      # Talk to the BE stack's shared broker by service name, not a local one.
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+
+    volumes:
+      - ./application_PoC_MQTT/device_credentials.json:/app/application_PoC_MQTT/device_credentials.json
+
+    command: python -m app.main
+    networks: [trustbridge-net]
+
+networks:
+  trustbridge-net:
+    external: true

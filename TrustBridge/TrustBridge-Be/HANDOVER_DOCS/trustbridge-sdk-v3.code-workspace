@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../../trustbridge-sdk-v3"
+		},
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../TrustBridge-Docker"
+		},
+		{
+			"path": "../../TrustBridge-FE"
+		}
+	],
+	"settings": {}
+}

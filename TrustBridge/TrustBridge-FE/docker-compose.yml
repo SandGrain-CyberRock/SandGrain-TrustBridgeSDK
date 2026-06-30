@@ -1,0 +1,21 @@
+# =============================================================================
+# TrustBridge-FE — Vite dev server
+# Self-contained, joins external network `trustbridge-net`.
+# =============================================================================
+
+services:
+  fe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tb-fe
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${FE_PORT:-5173}:5173"
+    networks: [trustbridge-net]
+
+networks:
+  trustbridge-net:
+    external: true
