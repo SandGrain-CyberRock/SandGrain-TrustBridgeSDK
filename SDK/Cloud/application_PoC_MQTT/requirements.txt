@@ -1,4 +1,0 @@
-sandgrain-cloud-sdk
-paho-mqtt
-aiohttp
-python-dotenv
