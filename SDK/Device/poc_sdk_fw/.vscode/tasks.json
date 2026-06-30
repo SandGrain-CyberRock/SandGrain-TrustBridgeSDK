@@ -1,0 +1,40 @@
+{
+    "version": "2.0.0",
+    "windows": {
+        "options": {
+            "shell": {
+                "executable": "C:\\msys64\\usr\\bin\\bash.exe",
+                "args": ["-lc"]
+            },
+            "env": {
+                "PATH": "C:\\msys64\\mingw64\\bin;${env:PATH}",
+                "CHERE_INVOKING": "1",
+                "MSYSTEM": "MINGW64"
+            }
+        }
+    },
+    "tasks": [
+        {
+            "label": "make build",
+            "type": "shell",
+            "command": "set -xeuo pipefail; make -j V=1",
+            "options": {
+                "cwd": "${workspaceFolder}/app"
+            },
+            "problemMatcher": ["$gcc"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "make clean",
+            "type": "shell",
+            "command": "set -xeuo pipefail; make clean V=1",
+            "options": {
+                "cwd": "${workspaceFolder}/app"
+            },
+            "problemMatcher": ["$gcc"]
+        }
+    ]
+}
