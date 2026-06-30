@@ -1,46 +1,23 @@
-# TrustBridge SDK — v3.4.x
+# Sandgrain SDK — `release/v3.4.0`
 
-TrustBridge is Sandgrain's secure device-to-cloud bridge platform. It provides identity verification, attested device handshake, biometric authentication, and encrypted telemetry between embedded devices and the Sandgrain cloud.
+Consolidated Sandgrain / TrustBridge versioning repository.
+This branch mirrors the upstream `sandgrain-sdk` branch **`rev3.2`**.
 
-This branch is the **v3.4.x release stream**, cut from `development/v3.4.0` at code freeze.
+## Layout
 
-This repository contains the three deliverables that make up a TrustBridge release stream:
+- `SDK/` — the Sandgrain SDK (device + gateway + cloud) for this stream.
 
-| Component        | Description                                                        |
-| ---------------- | ------------------------------------------------------------------ |
-| `SDK`            | Shared client SDK consumed by FE and BE — protocol, crypto, types. |
-| `TrustBridge FE` | Device-side firmware client that runs on the embedded gateway.     |
-| `TrustBridge BE` | Cloud-side service that terminates device sessions and brokers data. |
+## Branch map (sandgrain-sdk -> versioning)
 
-## Release Stream
+| Versioning branch    | sandgrain-sdk source | Notes                          |
+| -------------------- | -------------------- | ------------------------------ |
+| `main`               | `main`               | Stable trunk                   |
+| `development/v3.1.0` | `rev3.1-Spinnov`     | Spinnov development line        |
+| `release/v3.1.0`     | `rev3.1`             | v3.1 release stream             |
+| `release/v3.2.0`     | `rev3.2-ARM`         | ARM host port                   |
+| `release/v3.3.0`     | `rev3.2-Mutual`      | Mutual-auth integration         |
+| `release/v3.4.0`     | `rev3.2`             | v3.2 baseline                   |
+| `release/v3.5.0`     | `rev3.3`             | v3.3 stream                     |
+| `release/v3.6.0`     | `trustbridge-0.4`    | TrustBridge integration (+ FE/BE) |
 
-```text
-release/v3.4.0
-└── v3.4.0   — initial release
-```
-
-## What's new in v3.4.x
-
-* **Linux host SDK** — Ubuntu 22.04+ and Debian 12+ as first-class FE targets.
-* **WebAssembly SDK** — browser-embeddable SDK build for in-page TrustBridge integrations.
-* **Gateway v4 protocol** — backwards-incompatible handshake bump; `TrustBridge BE` ships a v3/v4 dual stack during the migration window.
-* **Post-quantum signatures** — Dilithium attestation alongside existing Ed25519.
-* **Streaming control channel** — bidirectional commands from BE to FE.
-
-## Branch Strategy
-
-| Branch                       | Purpose                                            |
-| ---------------------------- | -------------------------------------------------- |
-| `main`                       | Stable trunk pointing at the latest released stream |
-| `development/v3.4.0`         | Active development for the v3.4 stream             |
-| `release/v3.1.0`             | Maintenance (security only)                        |
-| `release/v3.2.0`             | Active support                                     |
-| `release/v3.3.0`             | Active support                                     |
-| `release/v3.4.0`             | Cut from `development/v3.4.0` at code-freeze       |
-| `hotfix/*`                   | Off the matching release branch                    |
-| `feature/*`                  | Off the active development branch                  |
-
-## Documentation
-
-* `VERSIONING.md` — release stream and tagging strategy
-* `COMPATIBILITY.md` — supported firmware, OS, and gateway versions
+See [COMPATIBILITY.md](./COMPATIBILITY.md) and [VERSIONING.md](./VERSIONING.md).
