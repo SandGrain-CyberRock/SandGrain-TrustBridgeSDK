@@ -1,22 +1,19 @@
-# TrustBridge SDK — Changelog
+# Versioning — `release/v3.1.0`
 
-All notable changes to the TrustBridge SDK are recorded here per release stream.
+Stream: **3.1.0** (source `sandgrain-sdk:rev3.1`).
 
-## v3.1.x
+This branch is the consolidated snapshot of the `rev3.1` line laid out
+under `SDK/`.
 
-### v3.1.0 — 2025-02-18
+## Branch map (sandgrain-sdk -> versioning)
 
-Initial public release of the v3.x TrustBridge platform.
-
-#### Added
-
-* New `SDK` package implementing the v3 device-handshake protocol.
-* `TrustBridge FE` embedded client for supported gateway firmware.
-* `TrustBridge BE` cloud broker service.
-* Identity verification via attested device certificates.
-* Encrypted telemetry channel over the Sandgrain backbone.
-
-#### Notes
-
-* First release stream cut from `development/v3.1.0`.
-* Replaces the legacy v2 monolithic agent.
+| Versioning branch    | sandgrain-sdk source | Notes                          |
+| -------------------- | -------------------- | ------------------------------ |
+| `main`               | `main`               | Stable trunk                   |
+| `development/v3.1.0` | `rev3.1-Spinnov`     | Spinnov development line        |
+| `release/v3.1.0`     | `rev3.1`             | v3.1 release stream             |
+| `release/v3.2.0`     | `rev3.2-ARM`         | ARM host port                   |
+| `release/v3.3.0`     | `rev3.2-Mutual`      | Mutual-auth integration         |
+| `release/v3.4.0`     | `rev3.2`             | v3.2 baseline                   |
+| `release/v3.5.0`     | `rev3.3`             | v3.3 stream                     |
+| `release/v3.6.0`     | `trustbridge-0.4`    | TrustBridge integration (+ FE/BE) |

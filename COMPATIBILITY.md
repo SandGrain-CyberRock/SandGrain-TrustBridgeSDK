@@ -1,28 +1,13 @@
-# Compatibility Matrix — v3.1.x
+# Compatibility — `release/v3.1.0`
 
-## Release Stream Status
+| Field            | Value |
+| ---------------- | ----- |
+| Versioning branch | `release/v3.1.0` |
+| sandgrain-sdk source | `rev3.1` |
+| Stream version   | 3.1.0 |
 
-| Release Branch | Latest Tag | Status              |
-| -------------- | ---------- | ------------------- |
-| release/v3.1.0 | v3.1.0     | Active Support      |
+## SDK <-> Firmware <-> Gateway
 
-## SDK ↔ Gateway ↔ Firmware
-
-| SDK Version | Device Firmware | Gateway Version |
-| ----------- | --------------- | --------------- |
-| v3.1.x      | 3.1+            | 3.x             |
-
-## OS Compatibility
-
-| Component       | Platform | Minimum Version |
-| --------------- | -------- | --------------- |
-| TrustBridge FE  | iOS      | 14.0            |
-| TrustBridge FE  | Android  | 8.0 (API 26)    |
-| TrustBridge BE  | Linux    | Ubuntu 20.04    |
-| TrustBridge BE  | Linux    | Debian 11       |
-| SDK (host SDK)  | macOS    | 11.0 (Big Sur)  |
-
-## Notes
-
-* v3.1.0 is the initial public release of the v3.x platform.
-* Maintenance tags within this stream are forward-compatible — applications can upgrade across v3.1.x without code changes.
+| SDK stream | Device firmware | Gateway |
+| ---------- | --------------- | ------- |
+| 3.1.0 | matching rev | matching rev |

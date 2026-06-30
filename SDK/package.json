@@ -1,8 +1,0 @@
-{
-  "name": "@sandgrain/trustbridge-sdk",
-  "version": "3.1.0",
-  "description": "Shared protocol and crypto library for TrustBridge FE and BE.",
-  "main": "src/index.ts",
-  "license": "UNLICENSED",
-  "private": true
-}
