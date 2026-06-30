@@ -1,34 +1,19 @@
-# TrustBridge SDK — Changelog
+# Versioning — `release/v3.2.0`
 
-All notable changes to the TrustBridge SDK are recorded here per release stream.
+Stream: **3.2.0** (source `sandgrain-sdk:rev3.2-ARM`).
 
-## v3.2.x
+This branch is the consolidated snapshot of the `rev3.2-ARM` line laid out
+under `SDK/`.
 
-### v3.2.0 — 2025-06-12
+## Branch map (sandgrain-sdk -> versioning)
 
-Second stream of the v3.x TrustBridge platform.
-
-#### Added
-
-* Biometric authentication during device enrolment (`SDK/src/auth.ts`).
-* macOS host SDK target for desktop integrations.
-* Replay-protected handshake nonce in `SDK/src/session.ts`.
-
-#### Changed
-
-* Bumped minimum OS targets — iOS 15, Android 9.
-* `TrustBridge BE` now requires Postgres 14+ for the attestation cache.
-
-#### Notes
-
-* Forward-compatible with v3.1.x device firmware in passthrough mode.
-
-## v3.1.x
-
-### v3.1.1 — 2025-04-02
-
-* Handshake retry loop fix; `libsodium` CVE patch.
-
-### v3.1.0 — 2025-02-18
-
-* Initial public release of the v3.x TrustBridge platform.
+| Versioning branch    | sandgrain-sdk source | Notes                          |
+| -------------------- | -------------------- | ------------------------------ |
+| `main`               | `main`               | Stable trunk                   |
+| `development/v3.1.0` | `rev3.1-Spinnov`     | Spinnov development line        |
+| `release/v3.1.0`     | `rev3.1`             | v3.1 release stream             |
+| `release/v3.2.0`     | `rev3.2-ARM`         | ARM host port                   |
+| `release/v3.3.0`     | `rev3.2-Mutual`      | Mutual-auth integration         |
+| `release/v3.4.0`     | `rev3.2`             | v3.2 baseline                   |
+| `release/v3.5.0`     | `rev3.3`             | v3.3 stream                     |
+| `release/v3.6.0`     | `trustbridge-0.4`    | TrustBridge integration (+ FE/BE) |

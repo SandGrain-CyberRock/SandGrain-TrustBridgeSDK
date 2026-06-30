@@ -1,31 +1,23 @@
-# TrustBridge SDK — v3.2.x
+# Sandgrain SDK — `release/v3.2.0`
 
-TrustBridge is Sandgrain's secure device-to-cloud bridge platform. It provides identity verification, attested device handshake, biometric authentication, and encrypted telemetry between embedded devices and the Sandgrain cloud.
+Consolidated Sandgrain / TrustBridge versioning repository.
+This branch mirrors the upstream `sandgrain-sdk` branch **`rev3.2-ARM`**.
 
-This repository contains the three deliverables that make up a TrustBridge release stream:
+## Layout
 
-| Component        | Description                                                        |
-| ---------------- | ------------------------------------------------------------------ |
-| `SDK`            | Shared client SDK consumed by FE and BE — protocol, crypto, types. |
-| `TrustBridge FE` | Device-side firmware client that runs on the embedded gateway.     |
-| `TrustBridge BE` | Cloud-side service that terminates device sessions and brokers data. |
+- `SDK/` — the Sandgrain SDK (device + gateway + cloud) for this stream.
 
-## Release Stream
+## Branch map (sandgrain-sdk -> versioning)
 
-This branch holds the **v3.2.0** release.
+| Versioning branch    | sandgrain-sdk source | Notes                          |
+| -------------------- | -------------------- | ------------------------------ |
+| `main`               | `main`               | Stable trunk                   |
+| `development/v3.1.0` | `rev3.1-Spinnov`     | Spinnov development line        |
+| `release/v3.1.0`     | `rev3.1`             | v3.1 release stream             |
+| `release/v3.2.0`     | `rev3.2-ARM`         | ARM host port                   |
+| `release/v3.3.0`     | `rev3.2-Mutual`      | Mutual-auth integration         |
+| `release/v3.4.0`     | `rev3.2`             | v3.2 baseline                   |
+| `release/v3.5.0`     | `rev3.3`             | v3.3 stream                     |
+| `release/v3.6.0`     | `trustbridge-0.4`    | TrustBridge integration (+ FE/BE) |
 
-```text
-release/v3.2.0
-└── v3.2.0   — initial release (biometric auth, macOS host)
-```
-
-## What's new in v3.2.x
-
-* Biometric authentication on enrolment (Face ID / Android BiometricPrompt).
-* macOS host SDK support for desktop integrations.
-* Hardened replay protection in the v3 handshake.
-
-## Documentation
-
-* `VERSIONING.md` — release stream and tagging strategy
-* `COMPATIBILITY.md` — supported firmware, OS, and gateway versions
+See [COMPATIBILITY.md](./COMPATIBILITY.md) and [VERSIONING.md](./VERSIONING.md).
