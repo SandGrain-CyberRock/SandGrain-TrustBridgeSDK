@@ -43,11 +43,24 @@ Device (C, DEVICE_MODE)  <-- TCP -->  Gateway (C, GATEWAY_MODE)  <-- MQTT -->  C
 | Backend | `CYBERROCK_BASE_URL` (e.g. `https://device-api.sandbox.sandgrain.io`); optional Cloudflare Access client id/secret for RW generation |
 | Auth | Per-TID device tokens + tenant token; JWT-expiry-aware caching |
 
-## Platform / toolchain requirements
+## OS / platform compatibility
+
+| Platform | Device app (C) | Gateway app (C) | Cloud (SDK + PoC app) | Notes |
+| -------- | -------------- | --------------- | --------------------- | ----- |
+| Linux x86-64 | ✅ | ✅ | ✅ | Native `gcc` build; token serial link uses the bundled `librs232lib.so` (**x86-64 only**) |
+| Windows 10/11 | ✅ (MinGW) | ✅ (MinGW) | ✅ | Static `librs232lib-static.a`; links `ws2_32` (sockets) and `bcrypt` (RNG) |
+| macOS | ❌ | ❌ | ✅ | No macOS target in the C Makefiles on this line (macOS support arrives in the 3.6.x line) |
+| ARM Linux (generic) | ❌ | ❌ | ✅ | The bundled rs232lib is x86-64-only — use the 3.2.x ARM line (`release/v3.2.0`) for ARM hosts |
+| Raspberry Pi | ❌ | ❌ | ✅ | Supported on the 3.2.x ARM line (native builds, POSIX termios serial) |
+
+The cloud side (Python ≥ 3.10 / Docker) runs on any OS; only the C device and
+gateway apps are platform-constrained.
+
+## Toolchain requirements
 
 | Component | Requirement |
 | --------- | ----------- |
-| C firmware + PoC apps | `gcc` (C11, `-g3 -O0`), Linux or Windows/MinGW; `libmosquitto`; bundled rs232 lib; crypto token on USB/FTDI (`SERIAL{n}:115200,N,8,1,N,N`) |
+| C firmware + PoC apps | `gcc` (C11, `-g3 -O0`), `make`; `libmosquitto`; crypto token on USB/FTDI (`SERIAL{n}:115200,N,8,1,N,N`) |
 | Cloud SDK | Python >= 3.10, `aiohttp` |
 | Cloud PoC app | Python, `paho-mqtt` v2 API, `python-dotenv` |
 | MQTT broker | EMQX Enterprise 6.1.0 via `sdk_cloud/docker-compose.yml` (ports 1883/8883/8083/8084/18083) |
