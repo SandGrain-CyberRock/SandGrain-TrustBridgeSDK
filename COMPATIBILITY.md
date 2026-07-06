@@ -41,11 +41,26 @@ Device (C, DEVICE_MODE)  <-- TCP -->  Gateway (C, GATEWAY_MODE)  <-- MQTT -->  C
 | Endpoints | `/api/device/*` (requestCW, replyRW, checkAuthStatus, RW generation) + tenant/device login |
 | Auth | Per-TID device tokens + tenant token; optional Cloudflare Access headers |
 
-## Platform / toolchain requirements
+## OS / platform compatibility
+
+This line is the **ARM host port** — the first line to support ARM hosts natively.
+
+| Platform | Device app (C) | Gateway app (C) | Cloud (SDK + PoC app) | Notes |
+| -------- | -------------- | --------------- | --------------------- | ----- |
+| Linux x86-64 | ✅ | ✅ | ✅ | Native `gcc`; token serial link via POSIX **termios** (no rs232lib needed) |
+| ARM Linux (generic) | ✅ | ✅ | ✅ | Native `gcc` build on the ARM host — no cross toolchain; termios serial |
+| Raspberry Pi | ✅ | ✅ | ✅ | Raspberry Pi OS (Trixie / Debian 13; `-D_GNU_SOURCE` for glibc ≥ 2.38); headless operation via `tmux`; setup via `SDK/setup.sh` |
+| Windows 10/11 | ✅ (via WSL) | ✅ (via WSL) | ✅ | `setup.ps1` / `run_all.ps1` run the stack inside WSL; a native MinGW build keeps the static rs232lib |
+| macOS | ❌ | ❌ | ✅ | No macOS target in the C Makefiles on this line (macOS support arrives in the 3.6.x line) |
+
+The cloud side (Python ≥ 3.10 / Docker) runs on any OS; only the C device and
+gateway apps are platform-constrained.
+
+## Toolchain requirements
 
 | Component | Requirement |
 | --------- | ----------- |
-| C firmware + PoC apps | **Native `gcc` build on the ARM host** (e.g. Raspberry Pi) or x86; Linux uses POSIX **termios** for the token serial link (no rs232lib); Windows/MinGW keeps static rs232lib; `libmosquitto`; `-D_GNU_SOURCE` for glibc ≥ 2.38 (Raspberry Pi OS Trixie / Debian 13) |
+| C firmware + PoC apps | `gcc` (C11), `make`; `libmosquitto`; `-D_GNU_SOURCE` (glibc ≥ 2.38) |
 | Host setup | `SDK/setup.sh` (Debian/Ubuntu/Raspberry Pi OS apt packages, Python venv); Windows via WSL (`setup.ps1`) |
 | Cloud SDK | Python >= 3.10, `aiohttp` |
 | Cloud PoC app | Python, `paho-mqtt` v2 API, `python-dotenv` |
