@@ -58,11 +58,27 @@ Gateway --MQTT gw_log/auth_result--> BE ; Cloud agent <--HTTPS creds-by-TID-- BE
 | Backends | `device-api.sandbox.sandgrain.io` (device flows) + `tenant-api.sandbox.sandgrain.io/api` (BE tenant API, auto-claim on `CLAIM_TOKEN`) |
 | Auth | Per-TID device tokens (from BE or local store) + tenant token; optional Cloudflare Access headers |
 
-## Platform / toolchain requirements
+## OS / platform compatibility
+
+This line has the **widest platform coverage** — Linux, Windows (WSL), macOS
+and Raspberry Pi are all supported for the C apps.
+
+| Platform | Device app (C) | Gateway app (C) | Cloud agent (Python) | TrustBridge FE/BE | Notes |
+| -------- | -------------- | --------------- | -------------------- | ----------------- | ----- |
+| Linux x86-64 | ✅ | ✅ | ✅ | ✅ | Native `gcc`; POSIX termios serial |
+| ARM Linux (generic) | ✅ | ✅ | ✅ | ✅ | Native build (inherits the 3.2.x ARM port) |
+| Raspberry Pi | ✅ | ✅ | ✅ | ✅ | `bootstrap-pi.sh` provisioning helper |
+| Windows 10/11 | ✅ (via WSL) | ✅ (via WSL) | ✅ | ✅ | `.ps1` launchers run inside WSL; attach the USB token to WSL with `usb-attach.ps1` (usbipd) |
+| macOS | ✅ | ✅ | ✅ | ✅ | **New on this line**: macOS Makefile branches; USB token via `/dev/cu.*` |
+
+TrustBridge FE/BE and the cloud agent run anywhere Docker (or Node.js ≥ 18 /
+Python ≥ 3.10) runs.
+
+## Toolchain requirements
 
 | Component | Requirement |
 | --------- | ----------- |
-| C firmware + apps | `gcc` (C11), Linux, Windows/WSL (`usb-attach.ps1` for USB passthrough) or **macOS**; `libmosquitto`; POSIX termios serial |
+| C firmware + apps | `gcc` (C11), `make`; `libmosquitto`; POSIX termios serial |
 | Cloud agent | Python >= 3.10, `aiohttp`, `paho-mqtt` v2 |
 | TrustBridge BE | Node.js (NestJS 10), MySQL 8.0, Mosquitto 2 (via `TrustBridge-Be/docker-compose.yml`) |
 | TrustBridge FE | Node.js (React 19 + Vite 7 + TypeScript), port 5173 |
