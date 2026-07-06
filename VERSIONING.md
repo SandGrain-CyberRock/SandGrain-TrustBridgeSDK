@@ -1,54 +1,48 @@
 # Versioning
 
-This repository versions the Sandgrain SDK using a **release-branch-per-minor**
-model with **tags** for every version published on a line.
-
 ## Release model
 
-- Every minor release line gets its own branch: **`release/vX.Y.0`**
-  (e.g. `release/v3.1.0`, `release/v3.2.0`, ...). That branch is the **main
-  release** for the `X.Y` line.
-- After the main release, all **bug fixes, enhancements and updates** for that
-  line are committed to the same release branch and published as **tags**:
-  `vX.Y.1`, `vX.Y.2`, ... — i.e. the `release/vX.Y.0` branch carries the whole
-  **`X.Y.x`** series, and each release in the series is a tag on that branch.
-- New feature work that changes the minor version starts a **new release
-  branch** (`release/v3.2.0`, then `release/v3.3.0`, and so on) rather than
-  landing on an existing line.
-- `development/vX.Y.0` branches (where present) are the working/development
-  lines feeding the corresponding `release/vX.Y.0` branch.
+- Every **major release** gets its own branch: **`release/vX.Y.0`**
+  (`release/v3.1.0`, `release/v3.2.0`, ...).
+- **Fixes and enhancements** on a released line are committed to its release
+  branch and published as **tags**: `v3.1.1`, `v3.1.2`, ... — the `3.1.x`
+  series lives on `release/v3.1.0`.
+- The next release starts a new branch (`release/v3.2.0`, then
+  `release/v3.3.0`, ...) and its VERSIONING.md carries the **previous
+  versions' history plus what is new** on that line.
+- The **development branch** (`development/vX.Y.0`) is the current working
+  branch feeding its release line.
 
-### Example
+What moves the version:
 
-| Branch | Version line | Releases |
-| ------ | ------------ | -------- |
-| `release/v3.1.0` | 3.1.x | `v3.1.0` (main release), then tags `v3.1.1`, `v3.1.2`, ... for fixes/enhancements |
-| `release/v3.2.0` | 3.2.x | `v3.2.0` (main release), then tags `v3.2.1`, `v3.2.2`, ... |
-| `release/v3.3.0` | 3.3.x | `v3.3.0` (main release), then tags `v3.3.1`, ... |
-
-To get an exact released version, check out its tag (e.g.
-`git checkout v3.1.2`); to get the latest state of a line, check out its
-release branch.
+| Change | Bump |
+| ------ | ---- |
+| Breaking API / architecture shift | MAJOR · `X.0.0` |
+| New backward-compatible capability or supported target | MINOR · `3.Y.0` |
+| Backward-compatible bug / doc / build fix | PATCH · `3.1.Z` (tag on the release branch) |
 
 ## This branch
 
-`development/v3.1.0` — the development line for the **3.1.x** series, laid out
-under `SDK/PoC_SDK_v3/`.
+`development/v3.1.0` — the **current working branch** for the 3.1.x line,
+feeding `release/v3.1.0`. Laid out under `SDK/PoC_SDK_v3/`.
 
-## Component versions on this branch
+## Version history
 
-- The C firmware (SGR SDK under `poc_sdk_device/sdk_fw/` and
-  `poc_sdk_gateway/sdk_fw/`) carries no version macro in code — its version is
-  the version line of this branch.
-- The Python Cloud SDK is independently versioned in its own
-  `pyproject.toml`: `sandgrain-cloud-sdk` **0.3.0**
-  (`SDK/PoC_SDK_v3/sdk_cloud/sandgrain_cloud_sdk/`).
+### 3.1.0 — Initial SDK v3 release (`release/v3.1.0`)
 
-## Note on the previous scheme
+- Three-tier PoC architecture: device (C, `DEVICE_MODE`) ↔ gateway (C,
+  `GATEWAY_MODE`) ↔ cloud (Python).
+- CW/RW device authentication through the gateway: TCP device↔gateway
+  (JSON frames `"4"`/`"5"`), MQTT gateway↔cloud (`sandgrain/v1/<tid>/req|rsp`
+  topics, actions requestCW / replyRW / requestRW / checkAuthStatusCloud).
+- Firmware verification (frame `"6"`, SHA-256 hash as CW, `FW_OK`/`FW_NOK`)
+  and firmware installation authorization (frame `"7"`).
+- Fault-injection framework: device bit-flip module
+  (`app/fault_injection/fi_device`) plus gateway per-frame-type TX faults,
+  exercising the CW/RW bit-flip tolerance thresholds.
+- Python Cloud SDK `sandgrain-cloud-sdk` 0.3.0 (async, `aiohttp`) and the
+  runnable MQTT PoC application; EMQX docker-compose deployment.
+- Optional CRC-16/CCITT-FALSE payload integrity (auto-enabled per request).
 
-Earlier, each branch of this repository mirrored a specific upstream
-`sandgrain-sdk` revision (`rev3.1`, `rev3.2-ARM`, `rev3.2-Mutual`,
-`trustbridge-0.4`, ...). **That practice is retired** — the mapping is kept
-only as historical context in old commit messages and is no longer how
-versions are assigned. Going forward, versions follow the release model
-described above.
+Fixes and enhancements on this line are published as `v3.1.x` tags on
+`release/v3.1.0`.
