@@ -1,45 +1,54 @@
-# Versioning — `main`
+# Versioning
 
-Stream: **main** — stable trunk (source `sandgrain-sdk:main`).
+This repository versions the Sandgrain SDK using a **release-branch-per-minor**
+model with **tags** for every version published on a line.
 
-This branch is the consolidated snapshot of the upstream `main` line laid out
-under `SDK/PoC_SDK_v3/`.
+## Release model
 
-## How this repo is versioned
+- Every minor release line gets its own branch: **`release/vX.Y.0`**
+  (e.g. `release/v3.1.0`, `release/v3.2.0`, ...). That branch is the **main
+  release** for the `X.Y` line.
+- After the main release, all **bug fixes, enhancements and updates** for that
+  line are committed to the same release branch and published as **tags**:
+  `vX.Y.1`, `vX.Y.2`, ... — i.e. the `release/vX.Y.0` branch carries the whole
+  **`X.Y.x`** series, and each release in the series is a tag on that branch.
+- New feature work that changes the minor version starts a **new release
+  branch** (`release/v3.2.0`, then `release/v3.3.0`, and so on) rather than
+  landing on an existing line.
+- `development/vX.Y.0` branches (where present) are the working/development
+  lines feeding the corresponding `release/vX.Y.0` branch.
 
-- Each branch of this repository is a full snapshot of one `sandgrain-sdk`
-  revision (branch-per-stream, not tags): `development/vX.Y.Z` for active
-  development lines, `release/vX.Y.Z` for release streams, `main` for the
-  stable trunk.
-- The C firmware (SGR SDK under `poc_sdk_device/sdk_fw/` and
-  `poc_sdk_gateway/sdk_fw/`) carries **no version macro in code** — its version
-  is the stream of this branch. The generation is identified by the bundled
-  user guide (`User Guide - SDK v3.pdf`).
-- The Python Cloud SDK is independently versioned in its own `pyproject.toml`.
+### Example
+
+| Branch | Version line | Releases |
+| ------ | ------------ | -------- |
+| `release/v3.1.0` | 3.1.x | `v3.1.0` (main release), then tags `v3.1.1`, `v3.1.2`, ... for fixes/enhancements |
+| `release/v3.2.0` | 3.2.x | `v3.2.0` (main release), then tags `v3.2.1`, `v3.2.2`, ... |
+| `release/v3.3.0` | 3.3.x | `v3.3.0` (main release), then tags `v3.3.1`, ... |
+
+To get an exact released version, check out its tag (e.g.
+`git checkout v3.1.2`); to get the latest state of a line, check out its
+release branch.
+
+## This branch
+
+`main` — the stable trunk, laid out under `SDK/PoC_SDK_v3/`. Release lines
+branch off as `release/vX.Y.0`.
 
 ## Component versions on this branch
 
-| Component | Path | Version | Where defined |
-| --------- | ---- | ------- | ------------- |
-| SGR SDK firmware (device) | `SDK/PoC_SDK_v3/poc_sdk_device/sdk_fw/` | main (stream) | this branch |
-| SGR SDK firmware (gateway) | `SDK/PoC_SDK_v3/poc_sdk_gateway/sdk_fw/` | main (stream) | this branch |
-| Device / Gateway PoC apps | `.../poc_sdk_{device,gateway}/app/` | main (stream) | this branch |
-| `sandgrain-cloud-sdk` (Python) | `SDK/PoC_SDK_v3/sdk_cloud/sandgrain_cloud_sdk/` | **0.3.0** | `pyproject.toml` |
-| Cloud PoC MQTT app | `SDK/PoC_SDK_v3/sdk_cloud/application_PoC_MQTT/` | main (stream) | this branch |
-| MQTT protocol namespace | topics | **`sandgrain/v1`** | `mqtt_transport.py`, GW `port_comm.c` |
+- The C firmware (SGR SDK under `poc_sdk_device/sdk_fw/` and
+  `poc_sdk_gateway/sdk_fw/`) carries no version macro in code — its version is
+  the version line of the branch it ships on.
+- The Python Cloud SDK is independently versioned in its own
+  `pyproject.toml`: `sandgrain-cloud-sdk` **0.3.0**
+  (`SDK/PoC_SDK_v3/sdk_cloud/sandgrain_cloud_sdk/`).
 
-The device and gateway `sdk_fw/` trees are the same SDK code base; they differ
-only in the mode-gated sources selected by `-DSDK_MODE=0|1` at build time.
+## Note on the previous scheme
 
-## Branch map (sandgrain-sdk -> versioning)
-
-| Versioning branch    | sandgrain-sdk source | Notes                          |
-| -------------------- | -------------------- | ------------------------------ |
-| `main`               | `main`               | Stable trunk                   |
-| `development/v3.1.0` | `rev3.1-Spinnov`     | Spinnov development line        |
-| `release/v3.1.0`     | `rev3.1`             | v3.1 release stream             |
-| `release/v3.2.0`     | `rev3.2-ARM`         | ARM host port                   |
-| `release/v3.3.0`     | `rev3.2-Mutual`      | Mutual-auth integration         |
-| `release/v3.4.0`     | `rev3.2`             | v3.2 baseline                   |
-| `release/v3.5.0`     | `rev3.3`             | v3.3 stream                     |
-| `release/v3.6.0`     | `trustbridge-0.4`    | TrustBridge integration (+ FE/BE) |
+Earlier, each branch of this repository mirrored a specific upstream
+`sandgrain-sdk` revision (`rev3.1`, `rev3.2-ARM`, `rev3.2-Mutual`,
+`trustbridge-0.4`, ...). **That practice is retired** — the mapping is kept
+only as historical context in old commit messages and is no longer how
+versions are assigned. Going forward, versions follow the release model
+described above.
