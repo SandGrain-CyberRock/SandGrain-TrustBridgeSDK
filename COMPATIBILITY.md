@@ -51,11 +51,28 @@ SGT1001 token <-- USB or /dev/spidev --> Device (C)  <-- TCP -->  Gateway (C)  <
 | Endpoints | `/api/device/*` incl. the HRW path (`requestTransactionId` / `requestHRW` / `checkRequestHRWStatus`) behind the public `requestRW` naming |
 | Auth | Per-TID device tokens + tenant token; optional Cloudflare Access headers |
 
-## Platform / toolchain requirements
+## OS / platform compatibility
+
+Token transport is a build-time switch on this line: `make TRANSPORT=usb`
+(USB-CDC/FTDI bridge, default) or `make TRANSPORT=spi` (native Linux
+`/dev/spidev` — Linux-only; the Makefile errors on Windows).
+
+| Platform | Device app (C) | Gateway app (C) | Cloud (SDK + PoC app) | Notes |
+| -------- | -------------- | --------------- | --------------------- | ----- |
+| Linux x86-64 | ✅ USB or SPI | ✅ | ✅ | Native `gcc` build |
+| Raspberry Pi | ✅ SPI (native) | ✅ | ✅ | `TRANSPORT=spi` over `/dev/spidev`; SGT1001 wiring table and SPI enablement in `SDK/README.md`; SPI config datasheet-locked (Mode 0, ≤ 10 MHz) |
+| ARM Linux (generic) | ✅ SPI | ✅ | ✅ | Native build; SPI via `/dev/spidev` |
+| Windows 10/11 | ✅ USB only | ✅ (MinGW) | ✅ | `TRANSPORT=spi` is rejected on Windows |
+| macOS | ❌ | ❌ | ✅ | No macOS target in the C Makefiles on this line (macOS support arrives in the 3.6.x line) |
+
+The cloud side (Python ≥ 3.10 / Docker) runs on any OS; only the C device and
+gateway apps are platform-constrained.
+
+## Toolchain requirements
 
 | Component | Requirement |
 | --------- | ----------- |
-| C firmware + apps | `gcc` (C11), Linux or Windows/MinGW (SPI transport Linux-only); `libmosquitto`; Raspberry Pi wiring per `SDK/README.md` |
+| C firmware + apps | `gcc` (C11), `make` (`TRANSPORT=usb\|spi`); `libmosquitto` |
 | Cloud SDK | Python >= 3.10, `aiohttp` |
 | Cloud PoC app | Python, `paho-mqtt` v2 API, `python-dotenv` |
 | MQTT broker | EMQX Enterprise 6.1.0 via `sdk_cloud/docker-compose.yml` (ports 1883/8883/8083/8084/18083) |
