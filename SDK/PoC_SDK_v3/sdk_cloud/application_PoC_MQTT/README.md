@@ -16,7 +16,7 @@ There are **two directions** for generating the Response Word (RW):
 ### 1) Embedded-calculated RW
 - Cloud requests a Challenge Word (CW) from CyberRock.
 - Embedded computes RW from the token IC and sends it to the Cloud.
-- Cloud replies RW to CyberRock and polls `checkAuthStatus`.
+- Cloud replies RW to CyberRock and polls `checkAuthStatus` until a terminal status.
 
 ### 2) Cloud-calculated RW (**simplified for embedded**)
 - Embedded requests a CW (`requestCW`).
@@ -34,7 +34,8 @@ There are two firmware-related flows:
 - It sends the TID, the verification result (FW_VERIFY), and the RW.
 - In this flow, the RW represents the firmware verification value.
 - The Challenge Word (CW) associated with that RW is the firmware hash.
-- The Cloud stores the verification result for that TID and RW pair.
+- The Cloud stores the verification result for that TID and RW pair
+  (in-memory, with a **5-minute TTL**).
 - If the verification result is FW_OK, the firmware is marked as allowed for installation.
 - If the verification result is not FW_OK, the firmware is marked as not allowed for installation.
 
@@ -43,8 +44,10 @@ There are two firmware-related flows:
 - The embedded sends the TID, CW, and RW to the Cloud so the installation can be validated.
 - Before calling CyberRock, the Cloud first checks whether firmware verification was previously completed and accepted for that TID.
 - This validation is based on the earlier fwVerification step.
-- The Cloud derives the verification RW from the installation CW and uses it to find the stored verification record.
-- If there is no previous valid firmware verification, installation is rejected.
+- The Cloud derives the verification RW from the installation CW (the 64-hex-char
+  CW must be the verification RW repeated twice: `CW = RW_verify || RW_verify`)
+  and uses it to find the stored verification record.
+- If there is no previous valid (non-expired) firmware verification, installation is rejected.
 - If firmware verification exists but was not approved, installation is also rejected.
 - If firmware verification is valid, the Cloud requests a new RW from CyberRock and compares it with the RW received from the embedded.
 - If both values match, FW_INSTALLATION is returned as OK.
@@ -53,7 +56,7 @@ There are two firmware-related flows:
 
 ## Configuration
 
-This app loads settings from environment variables (see `app/config.py`).
+This app loads settings from environment variables (see `app/config.py`, loaded via `python-dotenv`).
 
 1) Copy the example file:
 
@@ -63,11 +66,14 @@ cp .env.example .env
 
 2) Edit `.env`:
 
-- `CYBERROCK_BASE_URL` – base URL of the SandGrain/CyberRock API
+- `CYBERROCK_BASE_URL` – base URL of the SandGrain/CyberRock API (**required**)
 - `MQTT_HOST`, `MQTT_PORT`, `MQTT_USERNAME`, `MQTT_PASSWORD` – MQTT/EMQX broker settings
-- `DEVICE_CREDENTIALS_JSON` – path to a JSON file mapping `TID -> credentials` (see below)
+  (defaults: `localhost:1883`, no credentials)
+- `DEVICE_CREDENTIALS_JSON` – path to a JSON file mapping `TID -> credentials` (see below);
+  default `./device_credentials.json`
 - `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` – **optional**, only needed if your API is protected by Cloudflare Access
-  (used for `requestRW` in the default handler, and also for `checkRequestRWStatus` in the alternative handler)
+  (used by the `/api/device/*` calls, e.g. `requestCW`, `replyRW`, `requestRW`)
+- `MESSAGE_FORMAT` – optional, `json` (default); `protobuf` is a placeholder and not implemented
 
 > Note: `DEVICE_ID` exists in `.env.example` for historical reasons, but the app currently runs in **multi-device mode**
 > and derives `device_id` from the MQTT topic (see below).
@@ -92,9 +98,14 @@ The cloud side loads credentials internally based on `TID`.
 ### CRC Support
 CRC support is **optional** and is **disabled by default**.
 
-CRC is automatically enabled when an incoming request includes a CRC field in the frame. In that case, the CRC of the request is checked and validated, and the response is sent including the CRC of the payload.
+CRC is automatically enabled when an incoming request includes a `crc` object in the envelope. In that case, the CRC of the request is checked and validated, and the response is sent including the CRC of the payload.
 
-This mechanism is used to ensure data integrity.
+- Algorithm: **CRC-16/CCITT-FALSE** (init `0xFFFF`), computed over the UTF-8 bytes
+  of each field value, encoded as 4 hex digits.
+- The `crc` object maps field names to their CRC, e.g. `"crc": {"TID": "1a2b", "CW": "..."}`.
+- Protected fields: `TID`, `CW`, `RW`, `transactionId`. When CRC is enabled, every
+  protected field present in the payload **must** have a matching CRC entry, and every
+  CRC key must exist in the payload; any mismatch is rejected with code 12 (`CRC_INVALID`).
 
 On the device side, the CRC is processed only if the CRC field is present. If the field is not included, CRC handling is considered disabled.
 
@@ -113,6 +124,7 @@ Requests (embedded → cloud):
 - `sandgrain/v1/{device_id}/req/requestCW`
 - `sandgrain/v1/{device_id}/req/replyRW`
 - `sandgrain/v1/{device_id}/req/requestRW`
+- `sandgrain/v1/{device_id}/req/checkAuthStatusCloud` (accepted, but no response is published)
 - `sandgrain/v1/{device_id}/req/fwVerification`
 - `sandgrain/v1/{device_id}/req/fwInstallation`
 
@@ -130,11 +142,14 @@ Ensures the message is delivered, but allows duplicates to achieve that reliabil
 ### Requests
 ```json
 {
-  "payload": { }
+  "type": <message_type>,
+  "payload": { },
+  "crc": { }
 }
 ```
 
-Only `payload` is processed by the Cloud POC app.
+`type` must match the action in the topic (`0` requestCW, `1` replyRW, `2` requestRW,
+`3` checkAuthStatusCloud, `6` fwVerification, `7` fwInstallation). `crc` is optional (see above).
 
 ### Responses
 
@@ -152,15 +167,15 @@ Only `payload` is processed by the Cloud POC app.
 | Code | Result           | Description                                                                 |
 |------|------------------|-----------------------------------------------------------------------------|
 | 0    | OK               |                                                                             |
-| 10   | NOT_OK           | Unhandled error                                                             |
-| 11   | JSON_INVALID     | JSON parsing error                                                          |
-| 12   | CRC_INVALID      | Invalid CRC                                                                 |
+| 10   | NOT_OK           | Unhandled error / unknown action                                            |
+| 11   | JSON_INVALID     | JSON parsing error (envelope level; `type` is echoed as -1)                 |
+| 12   | CRC_INVALID      | Invalid CRC — also used as FW_INSTALL_NOT_ALLOWED when `fwInstallation` has no valid prior verification |
 | 13   | CYBERROCK_ERROR  | When HTTP request to CyberRock fails                                        |
 | 14   | AUTH_NOT_OK      | Authorization error                                                         |
-| 15   | PARAM_INVALID    | Invalid key parameter. Parameters must be VALID_FIELDS = ('TID', 'CW', 'RW', 'transactionId', 'auth_status') |
+| 15   | PARAM_INVALID    | Invalid key parameter. Allowed payload keys: `TID`, `CW`, `RW`, `transactionId`, `auth_status`, `FW_VERIFY`, `validation_status` |
 | 16   | KEY_ERROR        | When a key is not recognized                                                |
-| 17   | ACTION_INVALID   | Invalid action or type                                                      |
-| 18   | TIMEOUT_ERROR    | Timeout error                                                               |
+| 17   | ACTION_INVALID   | Invalid action or type / action mismatch                                    |
+| 18   | TIMEOUT          | Timeout error (handler hard-timeout is 25 s; internal polling 20 s at 0.5 s intervals) |
 
 
 There is **no correlation id / msgId** in this POC.
@@ -205,8 +220,11 @@ Legacy identifiers (PCC, ID, PCCID, IoT aliases) are **not supported**.
 
 **Output**
 ```json
-{ "transactionId": "..." }
+{ "auth_status": "..." }
 ```
+
+The Cloud forwards the RW to CyberRock and polls `checkAuthStatus` internally
+until a terminal status, which is returned as `auth_status`.
 
 ---
 
@@ -215,10 +233,11 @@ Legacy identifiers (PCC, ID, PCCID, IoT aliases) are **not supported**.
 ```json
 {
   "TID": "...",
-  "CW": "...",
-  "transactionId": "..."
+  "CW": "..."
 }
 ```
+
+(`transactionId` may be included but is ignored.)
 
 **Output**
 ```json
@@ -230,46 +249,18 @@ Legacy identifiers (PCC, ID, PCCID, IoT aliases) are **not supported**.
 The Cloud App waits internally until the RW is generated or a timeout occurs.
 
 ---
-### `requestCW`
-**Input**
-```json
-{ "TID": "..." }
-```
-
-**Output**
-```json
-{ "CW": "...", "transactionId": "..." }
-```
-
----
-
-### `replyRW` (embedded-computed RW)
-**Input**
-```json
-{
-  "TID": "...",
-  "CW": "...",
-  "RW": "...",
-  "transactionId": "..."
-}
-```
-
-**Output**
-```json
-{ "transactionId": "..." }
-```
-
----
 
 ### `fwVerification`
 **Input**
 ```json
 {
   "TID": "...",
-  "FW_VERIFY": "...",
+  "FW_VERIFY": "FW_OK | FW_NOK",
   "RW": "..."
 }
 ```
+
+`RW` must be 32 hex characters (16 bytes).
 
 **Output**
 ```json
@@ -278,7 +269,8 @@ The Cloud App waits internally until the RW is generated or a timeout occurs.
   "verificationRW": "..."
 }
 ```
----
+
+The stored permission expires after **5 minutes**.
 
 ---
 
@@ -292,6 +284,8 @@ The Cloud App waits internally until the RW is generated or a timeout occurs.
 }
 ```
 
+`CW` must be 64 hex characters, formed by repeating the verification RW twice.
+
 **Output**
 ```json
 {
@@ -299,12 +293,29 @@ The Cloud App waits internally until the RW is generated or a timeout occurs.
   "verificationRW": "..."
 }
 ```
+
 ---
 
-
 ## Running the application
+
+Locally:
 
 ```bash
 pip install -r requirements.txt
 python -m app.main
 ```
+
+The app maintains a pool of 4 SDK instances (each with its own HTTP session)
+and dispatches incoming MQTT requests concurrently.
+
+With Docker (from `../`, i.e. `sdk_cloud/`):
+
+```bash
+docker compose up
+```
+
+This starts an **EMQX** broker (ports 1883 MQTT, 18083 dashboard) and the cloud
+app (built from `../Dockerfile`, running `python -m app.main`). The app reads
+`.env` from this directory and mounts `device_credentials.json` into the
+container — when running under compose, set `MQTT_HOST=emqx` in `.env` so the
+app reaches the broker by its service name.

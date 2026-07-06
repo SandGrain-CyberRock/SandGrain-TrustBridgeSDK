@@ -35,15 +35,20 @@ The SDK sits on the **cloud application** side, and exposes primitives to call t
 This repository contains **two levels** of API:
 
 1) **`CyberRockClient`** (thin REST client)
-- Close to 1:1 with REST endpoints
+- Close to 1:1 with REST endpoints (`tenantUserLogin`, `deviceLogin`, `claim-token`,
+  `requestCW`, `replyRW`, `checkAuthStatus`, `requestTransactionId`, `requestHRW`,
+  `checkRequestHRWStatus`)
+- `request_rw` / `check_request_rw_status` are compatibility wrappers over the
+  `requestTransactionId` + `requestHRW` pair (CW→HCW, HRW→RW mapping)
 - No workflow logic beyond request/response typing
+- All `/api/device/*` calls support Cloudflare Access headers
 
 2) **`CloudSDK`** (higher-level façade used by the POC)
 - Wraps `CyberRockClient`
 - Adds:
-  - token acquisition / refresh (via a `CredentialsStore`)
-  - lightweight convenience methods used by the POC
-  - optional polling helpers (where provided by the SDK)
+  - device/tenant token acquisition and refresh (via a `CredentialsStore` + `TokenCache`)
+  - convenience methods used by the POC (`request_cw`, `reply_rw`, `request_rw`, ...)
+  - polling helpers (`wait_auth_ok`, `wait_generated_rw`)
 
 If you are building an application/service, you will typically use `CloudSDK`.
 If you want very explicit REST calls, you can use `CyberRockClient` directly.
@@ -52,17 +57,18 @@ If you want very explicit REST calls, you can use `CyberRockClient` directly.
 
 ## Installation
 
-From PyPI (package name is the same as in `pyproject.toml`):
+From PyPI (package name matches `pyproject.toml`: `sandgrain-cloud-sdk`, requires Python >= 3.10):
 
 ```bash
 pip install sandgrain-cloud-sdk
 ```
 
-Optional extras:
+The only runtime dependency is `aiohttp`. Optional extras:
 
 ```bash
 pip install "sandgrain-cloud-sdk[mqtt]"      # adds paho-mqtt
 pip install "sandgrain-cloud-sdk[protobuf]"  # adds protobuf
+pip install "sandgrain-cloud-sdk[dev]"       # adds pytest, pytest-asyncio
 ```
 
 ---
@@ -71,46 +77,69 @@ pip install "sandgrain-cloud-sdk[protobuf]"  # adds protobuf
 
 ```
 sandgrain_cloud_sdk/
-  cloud_sdk.py            # high-level façade (used by POC)
-  cyberrock_client.py     # low-level REST client
-  credentials_store.py    # where credentials come from (e.g. JSON file)
-  token_cache.py          # token caching helpers
-  device_store.py         # small helpers for device state/identity (POC support)
-  models.py               # request/response models
-  exceptions.py           # SDK exceptions
-  crc.py                  # CRC helpers (if applicable)
+  cloud_sdk.py            # high-level façade: CloudSDK + CloudSDKConfig
+  cyberrock_client.py     # low-level REST client (aiohttp)
+  credentials_store.py    # credentials source (CredentialsStore, JsonFileCredentialsStore)
+  token_cache.py          # JWT token caching with expiry window
+  device_store.py         # backwards-compat aliases for the credentials store
+  models.py               # frozen dataclass request/response models
+  exceptions.py           # SDKError, CyberRockError, MissingTokenError,
+                          # WorkflowTimeoutError, InvalidInputError
 ```
+
+(CRC helpers are **not** part of the SDK — the MQTT PoC application implements
+CRC in `../application_PoC_MQTT/app/crc_utils.py`.)
 
 ---
 
 ## Quick start (CloudSDK)
 
-> The SDK is async (uses `aiohttp`). Examples below assume you are inside an async function.
+> The SDK is fully async (uses `aiohttp`). Examples below assume you are inside an async function.
 
 ```python
-from sandgrain_cloud_sdk import CloudSDK
-from sandgrain_cloud_sdk.credentials_store import JsonFileCredentialsStore
+import aiohttp
 
-sdk = CloudSDK(
-    base_url="https://<sandgrain-api-host>",
-    credentials_store=JsonFileCredentialsStore("device_credentials.json"),
-)
+from sandgrain_cloud_sdk import CloudSDK, CloudSDKConfig, JsonFileCredentialsStore
 
-# Example: request CW
-res = await sdk.request_cw(tid="...")
-print(res.cw, res.transaction_id)
+async with aiohttp.ClientSession() as session:
+    sdk = CloudSDK(
+        cfg=CloudSDKConfig(base_url="https://<sandgrain-api-host>"),
+        session=session,
+        creds=JsonFileCredentialsStore("device_credentials.json"),
+        # cf_access_client_id / cf_access_client_secret if the API is behind Cloudflare Access
+    )
+
+    # Example: request CW
+    res = await sdk.request_cw(tid="...")
+    print(res.cw, res.transaction_id)
+
+    # Example: cloud-computed RW (request + wait until generated)
+    rw_res = await sdk.request_rw(tid="...", cw="...")
+    rw = await sdk.wait_generated_rw(rw_transaction_id=rw_res.rw_transaction_id, tid="...")
 ```
+
+`CloudSDKConfig` also carries the polling parameters (`poll_interval_s`, default 1.0;
+`poll_timeout_s`, default 30.0) used by `wait_auth_ok` / `wait_generated_rw`.
+
+Device tokens are obtained lazily per TID through the `CredentialsStore` and cached
+in a `TokenCache` (JWT `exp`-aware, with a configurable early-expiry window).
 
 ---
 
 ## Using the low-level client (CyberRockClient)
 
 ```python
-from sandgrain_cloud_sdk.cyberrock_client import CyberRockClient
+import aiohttp
 
-client = CyberRockClient(base_url="https://<sandgrain-api-host>")
-# await client.<endpoint_call>(...)
+from sandgrain_cloud_sdk import CyberRockClient
+
+async with aiohttp.ClientSession() as session:
+    client = CyberRockClient(base_url="https://<sandgrain-api-host>", session=session)
+    login = await client.device_login("iot-user", "password")
+    res = await client.request_cw(tid="...", device_access_token=login.access_token)
 ```
+
+Errors from the platform are raised as `CyberRockError` (with `.status`, `.message`, `.body`).
 
 ---
 
@@ -124,6 +153,10 @@ pytest
 ```
 
 (If you run `pytest` without installing the package, imports like `sandgrain_cloud_sdk` will fail.)
+
+> **Note:** the current tests under `tests/` predate the device-login refactor
+> (they still reference the old `iotLogin` endpoints and field names) and need
+> updating before they pass against the current code.
 
 ---
 

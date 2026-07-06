@@ -1,93 +1,78 @@
-# PoC_SDK_Device
+# PoC SDK — Device
 
+Proof-of-concept application for the Sandgrain SGR SDK running in **DEVICE_MODE**.
+The device authenticates against a Gateway (see `../poc_sdk_gateway/`), verifies
+firmware images with the crypto token, and requests installation authorization.
 
+## Layout
 
-## Getting started
+- `app/` — the PoC application (interactive menu, port-layer implementations, fault injection).
+- `sdk_fw/` — the SGR SDK sources (see [`sdk_fw/README.md`](./sdk_fw/README.md)).
+- `setup-debug.sh` — Linux helper enabling passwordless-`sudo` GDB for VS Code (F5) debugging.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## What the app does
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+`app/main_device.c` initializes the SDK (`SGR_SDK_Initialize()`) and presents an
+interactive menu:
 
-## Add your files
+| Option | Action |
+| ------ | ------ |
+| 1 | Normal authentication via Gateway (`SGR_SDK_Authenticate_Via_GW`) |
+| 2 | Authentication with fault injection (CW: 2 bit flips, CW echo: 1, RW: 1) |
+| 3 | Authentication with Error-Management stress (CW: 3 bit flips RX, CW echo: 2 TX) |
+| 4 | FW verification with correct RW — expects `FW_OK` (`SGR_SDK_Verification_FW`) |
+| 5 | FW verification with wrong (all-zero) RW — expects `FW_NOK` |
+| 6 | Installation request (`SGR_SDK_Installation`) — run option 4 first |
+| 0 | Exit |
 
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+FW verification computes SHA-256 over a built-in 64-byte test firmware blob, uses
+the hash as CW, obtains the RW from the crypto token, and sends the result to the
+Gateway (frame type `"6"`). Installation sends TID + CW + RW (frame type `"7"`)
+and waits for the Gateway/Cloud verdict.
 
+### Fault injection
+
+`app/fault_injection/fi_device.{h,c}` provides runtime bit-flip injection into the
+hex-encoded CW / CW-echo / RW fields of the JSON frames. It is enabled purely at
+runtime by menu options 2 and 3 (no build flag needed); the flips are applied
+inside `app/port/port_comm.c`. Additional comm-level (byte corruption) and
+SPI-level fault-injection hooks exist in the port layer.
+
+## Port layer used by this PoC
+
+The compiled port implementations live in `app/port/`:
+
+- `port_comm.c` — Gateway link over **TCP socket** to `127.0.0.1:8080`
+  (implements the `port_comm_ctx_t` API from `sdk_fw/port/port_comm.h`).
+- `port_comm_device.c` — socket helper for the device↔GW channel.
+- `port_spi_usb.c` — crypto token over **USB serial / FTDI** (VID 0x0403, PID 0x6014)
+  using the bundled rs232 library; port selected via `USB_PORT_STRING` in `app/config_poc.h`.
+- `port_delay.c`, `port_random.c` — timing (`usleep`) and CSPRNG
+  (`BCryptGenRandom` on Windows, `/dev/urandom` on Linux).
+
+`app/port/example_port_comm/` contains two alternative **reference** transports
+(not compiled): `port_comm_mqtt/` (mosquitto, `sandgrain/v1/<id>/req|rsp/...`
+topics) and `port_comm_socket/` (raw TCP, the template for the active port).
+
+Client-tunable settings (socket port/IP, USB COM/tty port) are in `app/config_poc.h`.
+
+## Build and run
+
+Requires `gcc`, `make` and `libmosquitto` (linked even though the active comm
+port is socket-based). The rs232 serial library is bundled under
+`sdk_fw/src/utils/rs232/`. Works on Linux and Windows (MinGW; links `ws2_32`, `bcrypt`).
+
+```bash
+cd app
+make            # builds ./test_device with -DSDK_MODE=0 (DEVICE_MODE)
+./test_device
+make clean
 ```
-cd existing_repo
-git remote add origin https://gitlab.ikerlan.es/FZM/projects/transferencia/SandGrain/poc_sdk_2/poc_sdk_device.git
-git branch -M main
-git push -uf origin main
-```
 
-## Integrate with your tools
+A Gateway must be listening on `127.0.0.1:8080` for the flows to complete
+(see `../poc_sdk_gateway/`). The crypto token must be connected via USB for
+options that compute RWs.
 
-* [Set up project integrations](https://gitlab.ikerlan.es/FZM/projects/transferencia/SandGrain/poc_sdk_2/poc_sdk_device/-/settings/integrations)
+## Documentation
 
-## Collaborate with your team
-
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Full integration guide: `sdk_fw/docs/User Guide - SDK v3.pdf`.
