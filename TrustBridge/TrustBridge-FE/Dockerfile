@@ -5,8 +5,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+# Lockfiles are gitignored in this repo (.gitignore: package-lock.json, yarn.lock),
+# so a fresh clone has none. Copy package.json plus an optional lockfile (the glob
+# matches zero files without error) and use `npm install` — `npm ci` would require
+# a committed lockfile that doesn't exist here.
+COPY package.json package-lock.json* ./
+RUN npm install
 
 COPY . .
 
