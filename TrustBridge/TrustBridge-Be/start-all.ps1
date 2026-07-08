@@ -53,11 +53,17 @@ $FeRepo    = if ($env:FE_REPO)  { $env:FE_REPO }  else { Join-Path $RootDir 'Tru
 $SdkRepo   = if ($env:SDK_REPO) {
     $env:SDK_REPO
 } else {
-    # SDK repo was renamed trustbridge-sdk-v3 -> sandgrain-sdk. Prefer the new
-    # name; fall back to the old one so existing clones keep working.
+    # Locate the SDK repo across layouts, newest first:
+    #   <root>\..\SDK            SDK-Versioning migration: SDK is a top-level repo,
+    #                            sibling of TrustBridge\ (which holds BE/FE).
+    #   <root>\sandgrain-sdk     flat clone, repo renamed trustbridge-sdk-v3 -> sandgrain-sdk.
+    #   <root>\trustbridge-sdk-v3  legacy name, kept so existing clones still work.
+    $versioned = Join-Path (Split-Path -Parent $RootDir) 'SDK'
     $sandgrain = Join-Path $RootDir 'sandgrain-sdk'
     $legacy    = Join-Path $RootDir 'trustbridge-sdk-v3'
-    if (Test-Path $sandgrain) { $sandgrain } else { $legacy }
+    if     (Test-Path $versioned) { $versioned }
+    elseif (Test-Path $sandgrain) { $sandgrain }
+    else                          { $legacy }
 }
 $CloudDir  = Join-Path (Join-Path $SdkRepo 'PoC_SDK_v3') 'sdk_cloud'
 
