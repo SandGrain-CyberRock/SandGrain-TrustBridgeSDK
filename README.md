@@ -89,17 +89,63 @@ Bring up TrustBridge first for BE mode: `docker compose up` in
 `TrustBridge/TrustBridge-FE/` (Vite dev server on :5173,
 `VITE_APP_ENDPOINT=http://localhost:3000/`).
 
-## Branch map (sandgrain-sdk -> versioning)
+## Run the TrustBridge stack with the SandGrain SDK (no-cloud)
 
-| Versioning branch    | sandgrain-sdk source | Notes                          |
-| -------------------- | -------------------- | ------------------------------ |
-| `main`               | `main`               | Stable trunk                   |
-| `development/v3.1.0` | `rev3.1-Spinnov`     | Spinnov development line        |
-| `release/v3.1.0`     | `rev3.1`             | v3.1 release stream             |
-| `release/v3.2.0`     | `rev3.2-ARM`         | ARM host port                   |
-| `release/v3.3.0`     | `rev3.2-Mutual`      | Mutual-auth integration         |
-| `release/v3.4.0`     | `rev3.2`             | v3.2 baseline                   |
-| `release/v3.5.0`     | `rev3.3`             | v3.3 stream                     |
-| `release/v3.6.0`     | `trustbridge-0.4`    | TrustBridge integration (+ FE/BE) |
+The TrustBridge Docker stack already contains the SandGrain cloud agent
+(`sandgrain-cloud-app`), so you do **not** run the SDK's local Python cloud. On
+the SDK side you launch only the **Gateway + Device** and point them at the
+stack — this is `run_all.sh`'s `--no-cloud` mode. Credentials resolve from the
+BE database, and the gateway syncs its whitelist from `GET /devices/whitelist`.
 
-See [COMPATIBILITY.md](./COMPATIBILITY.md) and [VERSIONING.md](./VERSIONING.md).
+**1. Bring up the TrustBridge stack** (MySQL + Mosquitto + BE :3000 + FE :5173 +
+`sandgrain-cloud-app`):
+
+```bash
+cd TrustBridge/TrustBridge-Be
+./start-all.sh up          # macOS / Linux / Git Bash / WSL
+# Windows PowerShell:  .\start-all.ps1 up
+```
+
+The launchers resolve the SDK cloud compose from `../../SDK` automatically; see
+[TrustBridge-BE/README.md](./TrustBridge/TrustBridge-BE/README.md) for the full
+command set.
+
+**2. Launch the SDK Gateway + Device against the stack:**
+
+```bash
+cd ../../SDK
+./setup.sh                 # once per machine
+./run_all.sh --no-cloud
+```
+
+`--no-cloud` skips the local cloud agent and prompts for the TrustBridge BE
+IP/port and the MQTT broker host/port — point both at the stack's host (use
+`localhost` when everything runs on one machine). The Device starts in
+`--listen` mode, so auth is triggered from the FE/BE via
+`sandgrain/v1/{TID}/cmd/run_auth` (the interactive menu stays available too).
+
+**3. Drive auth from the frontend** at <http://localhost:5173> (or via the BE
+API) and watch device state advance idle → inprogress → claimed → authenticated.
+
+### Split across two Pis
+
+Run the gateway and device on separate hosts, each pointing at the stack:
+
+```bash
+./run_gateway.sh   # gateway Pi — syncs the whitelist from the BE, relays MQTT to the broker
+./run_device.sh    # device Pi  — has the USB chip, dials the gateway on :8080
+```
+
+### The three run modes
+
+| Mode               | Command                 | Cloud agent            | Credentials source              |
+| ------------------ | ----------------------- | ---------------------- | ------------------------------- |
+| No-cloud (above)   | `run_all.sh --no-cloud` | TrustBridge container  | BE database                     |
+| Local cloud        | `run_all.sh`            | local Python agent     | `device_credentials.json`       |
+| Standalone (no BE) | `run_standalone.sh`     | local Python agent     | local creds + static whitelist  |
+
+---
+
+Per-branch mapping (sandgrain-sdk → versioning) lives in
+[VERSIONING.md](./VERSIONING.md); platform support is in
+[COMPATIBILITY.md](./COMPATIBILITY.md).
