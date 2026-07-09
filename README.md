@@ -38,7 +38,7 @@ earlier streams is dropped).
 
 ## Layout
 
-- `SDK/` — the SandGrain auth stack + launcher tooling:
+- `SandGrain-SDK/` — the SandGrain auth stack + launcher tooling:
   - `README.md` — PoC runner guide (BE-integrated mode).
   - `RUNNING_STANDALONE.md` — **standalone mode** (no TrustBridge BE): the
     cloud reads a local `device_credentials.json`, the gateway authorizes from
@@ -63,7 +63,7 @@ earlier streams is dropped).
   auth/comm events, audit logs, organizations, users and RBAC. Talks REST to
   the BE via `VITE_APP_ENDPOINT`.
 
-## What changed in the SDK for TrustBridge (`SDK/changes.md`)
+## What changed in the SDK for TrustBridge (`SandGrain-SDK/changes.md`)
 
 - Two-phase crypto opcodes: `TOKEN_AUTH` (`0x03000800`, Phase 1) and
   `HOST_AUTH` (`0x05000800`, Phase 2 + FW flows); `crypto_get_rw` takes a mode.
@@ -106,14 +106,14 @@ cd TrustBridge/TrustBridge-Be
 # Windows PowerShell:  .\start-all.ps1 up
 ```
 
-The launchers resolve the SDK cloud compose from `../../SDK` automatically; see
+The launchers resolve the SDK cloud compose from `../../SandGrain-SDK` automatically; see
 [TrustBridge-BE/README.md](./TrustBridge/TrustBridge-BE/README.md) for the full
 command set.
 
 **2. Launch the SDK Gateway + Device against the stack:**
 
 ```bash
-cd ../../SDK
+cd ../../SandGrain-SDK
 ./setup.sh                 # once per machine
 ./run_all.sh --no-cloud
 ```

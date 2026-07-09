@@ -54,14 +54,15 @@ logic, so the workflow is identical on Windows and Unix.
 
 ### Where it finds the other repos
 
-The SandGrain Cloud SDK lives in the separate top-level **`SDK/`** repo, not
-under `TrustBridge/`. `start-all` resolves the SDK repo in this order (first
+The SandGrain Cloud SDK lives in the separate top-level **`SandGrain-SDK/`** dir,
+not under `TrustBridge/`. `start-all` resolves the SDK repo in this order (first
 match wins):
 
 1. `$SDK_REPO` env var — explicit override
-2. `../../SDK` — the SDK-Versioning layout (SDK is a top-level sibling of `TrustBridge/`)
-3. `../sandgrain-sdk` — a flat clone with the renamed repo
-4. `../trustbridge-sdk-v3` — legacy name, kept so older clones still work
+2. `../../SandGrain-SDK` — the SandGrain-TrustBridgeSDK layout (a top-level sibling of `TrustBridge/`)
+3. `../../SDK` — the older layout, before the SDK dir was renamed
+4. `../sandgrain-sdk` — a flat clone with the renamed repo
+5. `../trustbridge-sdk-v3` — legacy name, kept so older clones still work
 
 The cloud compose is then `<SDK repo>/PoC_SDK_v3/sdk_cloud`. The BE and FE repos
 default to `TrustBridge-BE` / `TrustBridge-FE` next to the script and can
@@ -71,6 +72,6 @@ likewise be overridden with `BE_REPO` / `FE_REPO`.
 
 Once the stack is up, the containerized `sandgrain-cloud-app` **is** the cloud
 agent — so on the SDK side you run only the Gateway + Device in **no-cloud**
-mode (`cd ../../SDK && ./run_all.sh --no-cloud`). See the
+mode (`cd ../../SandGrain-SDK && ./run_all.sh --no-cloud`). See the
 [root README](../../README.md#run-the-trustbridge-stack-with-the-sandgrain-sdk-no-cloud)
 for the full end-to-end walkthrough.

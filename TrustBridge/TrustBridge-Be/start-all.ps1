@@ -54,14 +54,17 @@ $SdkRepo   = if ($env:SDK_REPO) {
     $env:SDK_REPO
 } else {
     # Locate the SDK repo across layouts, newest first:
-    #   <root>\..\SDK            SDK-Versioning migration: SDK is a top-level repo,
-    #                            sibling of TrustBridge\ (which holds BE/FE).
+    #   <root>\..\SandGrain-SDK  SandGrain-TrustBridgeSDK layout: the SDK is a
+    #                            top-level dir, sibling of TrustBridge\ (BE/FE).
+    #   <root>\..\SDK            older layout, before the SDK dir was renamed.
     #   <root>\sandgrain-sdk     flat clone, repo renamed trustbridge-sdk-v3 -> sandgrain-sdk.
     #   <root>\trustbridge-sdk-v3  legacy name, kept so existing clones still work.
+    $renamed   = Join-Path (Split-Path -Parent $RootDir) 'SandGrain-SDK'
     $versioned = Join-Path (Split-Path -Parent $RootDir) 'SDK'
     $sandgrain = Join-Path $RootDir 'sandgrain-sdk'
     $legacy    = Join-Path $RootDir 'trustbridge-sdk-v3'
-    if     (Test-Path $versioned) { $versioned }
+    if     (Test-Path $renamed)   { $renamed }
+    elseif (Test-Path $versioned) { $versioned }
     elseif (Test-Path $sandgrain) { $sandgrain }
     else                          { $legacy }
 }

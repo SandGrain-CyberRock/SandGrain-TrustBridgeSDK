@@ -43,12 +43,15 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BE_REPO="${BE_REPO:-$ROOT_DIR/TrustBridge-BE}"
 FE_REPO="${FE_REPO:-$ROOT_DIR/TrustBridge-FE}"
 # Locate the SDK repo across layouts, newest first:
-#   $ROOT_DIR/../SDK          SDK-Versioning migration: SDK is a top-level repo,
-#                             sibling of TrustBridge/ (which holds BE/FE).
-#   $ROOT_DIR/sandgrain-sdk   flat clone, repo renamed trustbridge-sdk-v3 -> sandgrain-sdk.
+#   $ROOT_DIR/../SandGrain-SDK  SandGrain-TrustBridgeSDK layout: the SDK is a
+#                               top-level dir, sibling of TrustBridge/ (BE/FE).
+#   $ROOT_DIR/../SDK            older layout, before the SDK dir was renamed.
+#   $ROOT_DIR/sandgrain-sdk     flat clone, repo renamed trustbridge-sdk-v3 -> sandgrain-sdk.
 #   $ROOT_DIR/trustbridge-sdk-v3  legacy name, kept so existing clones still work.
 if [ -n "${SDK_REPO:-}" ]; then
     :
+elif [ -d "$ROOT_DIR/../SandGrain-SDK" ]; then
+    SDK_REPO="$(cd "$ROOT_DIR/../SandGrain-SDK" && pwd)"
 elif [ -d "$ROOT_DIR/../SDK" ]; then
     SDK_REPO="$(cd "$ROOT_DIR/../SDK" && pwd)"
 elif [ -d "$ROOT_DIR/sandgrain-sdk" ]; then
