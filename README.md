@@ -77,7 +77,7 @@ earlier streams is dropped).
 ## Quick start
 
 ```bash
-cd SDK
+cd SandGrain-SDK
 ./setup.sh          # once per machine
 ./run_all.sh        # BE-integrated mode (requires TrustBridge-Be running)
 # or
