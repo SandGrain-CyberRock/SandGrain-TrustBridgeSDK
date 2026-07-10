@@ -489,6 +489,9 @@ write_launcher() {  # write_launcher FILE TITLE CMD...
     # after the sudo password prompt (plain LF would stair-step). `ts` emits LF
     # only, so it's intentionally not used here.
     echo '_stamp() { while IFS= read -r _l || [ -n "$_l" ]; do printf "[%s] %s\r\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$_l"; done; }'
+    # `stdbuf` (GNU coreutils) is absent on macOS/BSD. Fall back to Homebrew's
+    # `gstdbuf`, else run with no wrapper. Expanded at launcher runtime ($STDBUF).
+    echo 'if command -v stdbuf >/dev/null 2>&1; then STDBUF="stdbuf -oL -eL"; elif command -v gstdbuf >/dev/null 2>&1; then STDBUF="gstdbuf -oL -eL"; else STDBUF=""; fi'
     printf '%s\n' "$@"
     echo 'rc=${PIPESTATUS[0]}'
     echo "echo \"\""
@@ -523,7 +526,7 @@ fi
 # gateway sync its whitelist from the TrustBridge BE (curls BE_URL/devices/whitelist).
 write_launcher "$L_GW" "SandGrain GATEWAY" \
   "cd '$GW_DIR'" \
-  "${SUDO}env MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' MQTT_USER='$MQTT_USERNAME' MQTT_PASS='$MQTT_PASSWORD' BE_URL='$BE_URL_VAL' stdbuf -oL -eL ./test_gw 2>&1 | _stamp"
+  "${SUDO}env MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' MQTT_USER='$MQTT_USERNAME' MQTT_PASS='$MQTT_PASSWORD' BE_URL='$BE_URL_VAL' \$STDBUF ./test_gw 2>&1 | _stamp"
 
 # --no-cloud implies BE-driven listen mode (FE/BE triggers via cmd/run_auth);
 # the interactive terminal menu still runs in parallel. Cloud mode (default)
@@ -539,7 +542,7 @@ DEV_LAUNCH_ARGS=""
 # distinct from the MQTT broker host, which may be elsewhere.)
 write_launcher "$L_DEV" "SandGrain DEVICE" \
   "cd '$DEVICE_DIR'" \
-  "${DEV_SUDO}env MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' GW_HOST='127.0.0.1' GW_PORT='8080' stdbuf -oL -eL ./test_device${DEV_LAUNCH_ARGS} 2>&1 | _stamp"
+  "${DEV_SUDO}env MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' GW_HOST='127.0.0.1' GW_PORT='8080' \$STDBUF ./test_device${DEV_LAUNCH_ARGS} 2>&1 | _stamp"
 
 # --------------------------------------------------------------------------
 # 6b) Broker sanity (standalone): the local cloud/gateway/device need a NATIVE

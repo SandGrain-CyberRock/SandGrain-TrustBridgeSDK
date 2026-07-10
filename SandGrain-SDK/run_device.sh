@@ -172,9 +172,15 @@ _stamp() {
   done
 }
 trap 'stty sane 2>/dev/null || true' EXIT
+# `stdbuf` (GNU coreutils) forces line-buffering so timestamps stay live through
+# the pipe. It is NOT present on macOS/BSD; fall back to Homebrew's `gstdbuf`, or
+# to no wrapper at all (output may batch until the binary flushes, but it runs).
+if command -v stdbuf >/dev/null 2>&1; then STDBUF="stdbuf -oL -eL"
+elif command -v gstdbuf >/dev/null 2>&1; then STDBUF="gstdbuf -oL -eL"
+else STDBUF=""; fi
 ${SUDO}env \
   MQTT_BROKER="$MQTT_BROKER" MQTT_PORT="$MQTT_PORT" \
   MQTT_USER="$MQTT_USER"     MQTT_PASS="$MQTT_PASS" \
   GW_HOST="$GW_HOST"         GW_PORT="$GW_PORT" \
   USB_TTY_PORT="$USB_TTY_PORT" \
-  stdbuf -oL -eL ./test_device${DEV_ARGS} 2>&1 | _stamp
+  $STDBUF ./test_device${DEV_ARGS} 2>&1 | _stamp

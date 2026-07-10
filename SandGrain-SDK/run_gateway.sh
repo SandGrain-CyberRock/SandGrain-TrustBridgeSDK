@@ -114,8 +114,14 @@ _stamp() {
   done
 }
 trap 'stty sane 2>/dev/null || true' EXIT   # restore the terminal on exit
+# `stdbuf` (GNU coreutils) forces line-buffering so timestamps stay live through
+# the pipe. It is NOT present on macOS/BSD; fall back to Homebrew's `gstdbuf`, or
+# to no wrapper at all (output may batch until the binary flushes, but it runs).
+if command -v stdbuf >/dev/null 2>&1; then STDBUF="stdbuf -oL -eL"
+elif command -v gstdbuf >/dev/null 2>&1; then STDBUF="gstdbuf -oL -eL"
+else STDBUF=""; fi
 env \
   MQTT_BROKER="$MQTT_BROKER" MQTT_PORT="$MQTT_PORT" \
   MQTT_USER="$MQTT_USER"     MQTT_PASS="$MQTT_PASS" \
   BE_URL="$BE_URL"           GW_BIND_PORT="$GW_BIND_PORT" \
-  stdbuf -oL -eL ./test_gw 2>&1 | _stamp
+  $STDBUF ./test_gw 2>&1 | _stamp
