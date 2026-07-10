@@ -23,10 +23,11 @@ What moves the version:
 ## This branch
 
 `release/v3.6.0` — the **main release of the 3.6.x line** (TrustBridge
-integration): the SandGrain auth stack under `SDK/` plus the TrustBridge
-frontend/backend management layer under `TrustBridge/`. Fixes and enhancements
-to 3.6 land on this branch and are published as `v3.6.1`, `v3.6.2`, ... tags.
-The SDK-level integration changes are documented in `SDK/changes.md`.
+integration): the SandGrain auth stack under `SandGrain-SDK/` plus the
+TrustBridge frontend/backend management layer under `TrustBridge/`. Fixes and
+enhancements to 3.6 land on this branch and are published as `v3.6.1`,
+`v3.6.2`, ... tags. The SDK-level integration changes are documented in
+`SandGrain-SDK/changes.md`.
 
 ## Version history
 
@@ -51,7 +52,7 @@ Everything in 3.5.x, plus:
   publishes `status`, runs authentication on command; interactive menu kept as
   fallback.
 - **Standalone (no-BE) mode**: local `device_credentials.json` + static
-  whitelist (`SDK/RUNNING_STANDALONE.md`, `run_standalone.*`).
+  whitelist (`SandGrain-SDK/RUNNING_STANDALONE.md`, `run_standalone.*`).
 - Two-phase crypto opcodes: `TOKEN_AUTH` (`0x03000800`) and `HOST_AUTH`
   (`0x05000800`); gateway FSM rewrite with bit-flip error-management recovery;
   macOS build support.

@@ -38,7 +38,7 @@ Gateway --MQTT gw_log/auth_result--> BE ; Cloud agent <--HTTPS creds-by-TID-- BE
 | Telemetry | Gateway → BE: per-step `gw_log` (labels `1/6`…`6/6`, `cw_fail`, `em`, …) + terminal `auth_result`; drives device state idle→inprogress→claimed→authenticated |
 | Credentials | Cloud agent → BE: `GET {BE_URL}/devices/credentials-by-tid` (`TrustBridgeCredentialsStore`) |
 | Whitelist | Gateway polls `GET {BE_URL}/devices/whitelist` (~3 s) into `trustbridge_whitelist.txt` (`GW_WHITELIST_PATH`) |
-| Standalone mode | No `BE_URL`: local `device_credentials.json` + static `trustbridge_whitelist.txt` (see `SDK/RUNNING_STANDALONE.md`) |
+| Standalone mode | No `BE_URL`: local `device_credentials.json` + static `trustbridge_whitelist.txt` (see `SandGrain-SDK/RUNNING_STANDALONE.md`) |
 
 ## Device <-> Gateway <-> Cloud agent
 
