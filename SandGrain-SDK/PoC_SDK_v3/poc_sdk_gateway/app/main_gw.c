@@ -171,7 +171,13 @@ int main(void)
      * Probe for a token first via crypto_get_id(). If no token responds,
      * skip BIST silently and proceed straight to the dispatcher loop.
      * If a token is present, BIST is mandatory and a FAIL aborts startup.
+     *
+     * Skipped entirely when GW_CRYPTO_ENABLED == 0: a relay gateway has no
+     * crypto chip of its own, and on a single-host standalone setup (device +
+     * gateway sharing one USB chip) probing here would race the device for
+     * /dev/ttyACM0 — corrupting one side's read and aborting startup.
      * ------------------------------------------------------------------ */
+#if GW_CRYPTO_ENABLED
     {
         uint8_t probe_id[ID_SIZE_BYTES];
         sgr_crypto_status_t probe_status = crypto_get_id(probe_id, ID_SIZE_BYTES);
@@ -230,6 +236,9 @@ int main(void)
             }
         }
     }
+#else
+    printf("[BIST] Gateway crypto disabled (relay mode) — chip left to the device.\n\n");
+#endif
 
     /* Open the MQTT telemetry connection so the BE receives per-step gw_log
      * messages and the terminal auth_result (published from the FSM). */

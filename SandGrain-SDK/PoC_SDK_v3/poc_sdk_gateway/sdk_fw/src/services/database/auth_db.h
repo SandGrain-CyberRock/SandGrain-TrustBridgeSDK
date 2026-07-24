@@ -110,6 +110,16 @@ void auth_db_init(void);
 auth_db_status_t auth_db_register(const char *tid_hex, uint32_t *crc32_out);
 
 /**
+ * Re-synchronize the runtime tables with the current whitelist.
+ *
+ * The tables are indexed by whitelist position, so a reload that reorders or
+ * shrinks the list leaves them bound to the wrong TIDs. Called by
+ * auth_db_load_whitelist() after every reload; slots whose TID is unchanged are
+ * left untouched so an in-flight authentication keeps its context.
+ */
+void auth_db_rebind_whitelist(void);
+
+/**
  * Find device index by TID hex string.
  * Returns index or -1 if not found.
  */

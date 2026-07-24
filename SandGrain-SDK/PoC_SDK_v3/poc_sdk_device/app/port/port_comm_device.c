@@ -15,6 +15,7 @@
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #pragma comment(lib, "ws2_32.lib")
+    typedef SOCKET sock_t;
     #define SOCK_CLOSE(s)  closesocket(s)
     #define SOCK_INVALID   INVALID_SOCKET
 #else
@@ -22,14 +23,42 @@
     #include <arpa/inet.h>
     #include <sys/socket.h>
     #include <sys/select.h>
+    typedef int sock_t;
     #define SOCK_CLOSE(s)  close(s)
     #define SOCK_INVALID   (-1)
 #endif
+
+/* Concrete shape of the opaque type from port_comm_device.h.
+ * Lives here because it is socket-specific; bare-metal/UART/BLE impls would
+ * define their own version of this struct. */
+struct port_comm_device_s {
+    sock_t listen_fd;
+    sock_t conn_fd;
+    bool   is_server;
+};
 
 /* Env-overridable (the launchers export GW_HOST/GW_PORT from .env) — the
  * gateway socket the device dials; defaults to localhost:8080. */
 #define PORT      (getenv("GW_PORT") ? atoi(getenv("GW_PORT")) : 8080)
 #define SERVER_IP (getenv("GW_HOST") ? getenv("GW_HOST") : "127.0.0.1")
+
+/* =============================================================================
+ * port_comm_device_create / _destroy
+ * ============================================================================= */
+port_comm_device_t *port_comm_device_create(void)
+{
+    port_comm_device_t *ctx = calloc(1, sizeof(*ctx));
+    if (ctx == NULL)
+        return NULL;
+    ctx->listen_fd = SOCK_INVALID;
+    ctx->conn_fd   = SOCK_INVALID;
+    return ctx;
+}
+
+void port_comm_device_destroy(port_comm_device_t *ctx)
+{
+    free(ctx);
+}
 
 /* ── Debug ───────────────────────────────────────────────── */
 #if defined(PORT_COMM_DEVICE_DEBUG) && PORT_COMM_DEVICE_DEBUG == 1

@@ -19,7 +19,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "../../../include/sdk_sgr_config.h"
-#include "../../../port/port_comm.h"
+#include "../../../include/sdk_sgr_types.h"
 
 /* -----------------------------------------------------------------------------
  * server_ctx_t
@@ -31,7 +31,6 @@
 #define SERVER_CLAIM_TOKEN_ID_LEN 64
 
 typedef struct {
-    port_comm_ctx_t comm;
     uint8_t         rx_buf[SERVER_RX_BUF_SIZE];
     uint16_t        rx_len;
     /* Populated when SERVER_ReceiveAuthResult returns SERVER_CLAIM_TOKEN
@@ -53,6 +52,14 @@ typedef enum {
     SERVER_SERVER_ERROR = -5,
     SERVER_ERROR        = -6
 } server_status_t;
+
+/* -----------------------------------------------------------------------------
+ * Transport registration — common to all modes
+ *
+ * Registers the user-supplied transport used for all gateway/server frame I/O.
+ * Called by SGR_SDK_SetCommInterface(). Must be set before SERVER_Open().
+ * ----------------------------------------------------------------------------- */
+void SERVER_SetCommInterface(const sgr_sdk_comm_interface_t *iface);
 
 /* -----------------------------------------------------------------------------
  * Connection management — common to all modes

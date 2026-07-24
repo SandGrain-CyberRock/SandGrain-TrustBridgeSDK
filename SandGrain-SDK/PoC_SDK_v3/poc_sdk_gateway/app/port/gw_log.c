@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 static struct mosquitto *g_log_mosq  = NULL;
 static int               g_connected = 0;
@@ -56,7 +57,20 @@ void gw_log_init(void)
 
     mosquitto_lib_init();
 
-    g_log_mosq = mosquitto_new("gw_log_client", true, NULL);
+    /* MQTT requires a unique client-id per broker connection. A hardcoded id
+     * ("gw_log_client") collides the moment a second gateway — or a lingering
+     * previous run — connects to the same broker: the broker evicts the older
+     * connection (on_disconnect rc=7), both sides auto-reconnect, and they flap
+     * forever. On a shared/public broker that is guaranteed. Derive a per-host,
+     * per-process id so every gateway (and every restart) is distinct. */
+    char client_id[96];
+    char host[64] = {0};
+    if (gethostname(host, sizeof(host) - 1) != 0)
+        host[0] = '\0';
+    snprintf(client_id, sizeof(client_id), "gw_log_%s_%d",
+             host[0] ? host : "gw", (int)getpid());
+
+    g_log_mosq = mosquitto_new(client_id, true, NULL);
     if (!g_log_mosq)
     {
         printf("[GW_LOG] mosquitto_new failed\n");

@@ -117,6 +117,53 @@ auth_db_status_t auth_db_register(const char *tid_hex, uint32_t *crc32_out)
     return status;
 }
 
+void auth_db_rebind_whitelist(void)
+{
+    /* The runtime tables are indexed by whitelist POSITION, but the whitelist is
+     * reloaded from the backend every few seconds and the backend may reorder it
+     * (removing and re-adding a device moves it to the end). Registration skips
+     * any slot that is already active, so without this pass a reorder leaves
+     * crc32_table[i] bound to the TID that USED to sit at position i, while
+     * auth_db_whitelist[i] now names a different one — and the gateway asks
+     * CyberRock to challenge the wrong token, which always answers AUTH_NOT_OK.
+     * Re-bind the slots that moved; leave the rest alone so an in-flight auth on
+     * an unaffected device keeps its context. */
+    for (int i = 0; i < AUTH_DB_MAX_DEVICES; i++)
+    {
+        if (!active_table[i])
+            continue;
+
+        /* Slot fell off the end of a shrunken whitelist — device de-enrolled. */
+        if (i >= (int)auth_db_whitelist_count)
+        {
+            printf("[AUTH_DB] Released idx=%d | crc32=0x%08X | no longer in whitelist\n",
+                   i, crc32_table[i]);
+            active_table[i] = false;
+            crc32_table[i]  = 0;
+            memset(&ctx_table[i], 0, sizeof(auth_ctx_t));
+            continue;
+        }
+
+        /* Still the TID this slot was registered with — nothing to do. */
+        if (strncmp(ctx_table[i].tid_hex, auth_db_whitelist[i], AUTH_DB_TID_HEX_LEN) == 0)
+            continue;
+
+        /* Position now names a different TID: re-bind CRC32 and context to it. */
+        uint32_t crc32 = prv_compute_crc32(auth_db_whitelist[i]);
+
+        printf("[AUTH_DB] Re-bound idx=%d | crc32=0x%08X -> 0x%08X | tid=%.16s...\n",
+               i, crc32_table[i], crc32, auth_db_whitelist[i]);
+
+        crc32_table[i] = crc32;
+
+        memset(&ctx_table[i], 0, sizeof(auth_ctx_t));
+        ctx_table[i].crc32 = crc32;
+        strncpy(ctx_table[i].tid_hex, auth_db_whitelist[i], AUTH_DB_TID_HEX_LEN);
+        ctx_table[i].state  = AUTH_STATE_IDLE;
+        ctx_table[i].result = AUTH_RESULT_NONE;
+    }
+}
+
 auth_db_status_t auth_db_resolve(uint32_t crc32, char *tid_hex_out)
 {
     auth_db_status_t status = AUTH_DB_ERROR;
@@ -149,7 +196,13 @@ auth_db_status_t auth_db_resolve(uint32_t crc32, char *tid_hex_out)
         }
         else
         {
-            strncpy(tid_hex_out, auth_db_whitelist[idx], AUTH_DB_TID_HEX_LEN);
+            /* Read the TID from the context the CRC32 was bound to, NOT from
+             * auth_db_whitelist[idx]: the whitelist array is reloaded (and may be
+             * reordered) independently of the tables this index came from, so
+             * indexing it here can hand back a TID that does not match `crc32`.
+             * auth_db_rebind_whitelist() keeps the two in step; this makes a
+             * mismatch impossible even if a reload lands mid-flow. */
+            strncpy(tid_hex_out, ctx_table[idx].tid_hex, AUTH_DB_TID_HEX_LEN);
             tid_hex_out[AUTH_DB_TID_HEX_LEN] = '\0';
             status = AUTH_DB_OK;
         }

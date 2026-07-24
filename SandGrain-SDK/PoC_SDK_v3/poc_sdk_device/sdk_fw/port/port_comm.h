@@ -3,30 +3,16 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <mosquitto.h>
 
 /* =============================================================================
  * port_comm_ctx_t
  *
- * All state for a single MQTT connection.
- * Each GW channel has its own context — no shared state.
+ * Opaque per-connection context. The shape is defined by the transport
+ * implementation (port_comm.c) — the SDK and its callers treat it as a handle.
+ * Transports that keep their state in file-scope globals may ignore ctx and
+ * accept NULL.
  * ============================================================================= */
-typedef struct {
-    struct mosquitto *mosq;
-
-    char topic_req_cw[128];
-    char topic_reply_rw[128];
-    char topic_req_rw[128];
-    char topic_check_auth_cloud[128];
-    char topic_fw_verify[128];
-    char topic_installation[128];
-    char topic_rsp[128];
-
-    uint8_t  rx_buffer[512];
-    uint16_t rx_size;
-    bool     rx_available;
-    bool     connected;
-} port_comm_ctx_t;
+typedef struct port_comm_ctx_s port_comm_ctx_t;
 
 bool port_comm_init   (port_comm_ctx_t *ctx, const char *device_id);
 bool port_comm_send   (port_comm_ctx_t *ctx, const uint8_t *buffer_tx, uint16_t buffer_tx_size);

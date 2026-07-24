@@ -73,5 +73,11 @@ int auth_db_load_whitelist(const char *file_path)
 
     auth_db_whitelist_count = (uint16_t)count;
     printf("[AUTH_DB] Loaded %d device(s) from whitelist: %s\n", count, file_path);
+
+    /* The backend reorders this list (re-adding a device moves it to the end),
+     * and the runtime tables are keyed by position — re-bind them or the gateway
+     * will resolve a CRC32 to whichever TID now occupies that slot. */
+    auth_db_rebind_whitelist();
+
     return count;
 }

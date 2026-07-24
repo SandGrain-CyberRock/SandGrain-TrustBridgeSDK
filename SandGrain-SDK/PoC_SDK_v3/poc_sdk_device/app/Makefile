@@ -88,6 +88,7 @@ SDK_SRCS := \
 POC_SRCS := \
     main_device.c \
     port/port_comm.c \
+    port/comm_adapter.c \
     port/port_comm_device.c \
     port/port_delay.c \
     port/port_spi_usb.c \

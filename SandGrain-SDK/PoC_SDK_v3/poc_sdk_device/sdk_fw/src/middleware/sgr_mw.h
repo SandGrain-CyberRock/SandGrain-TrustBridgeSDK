@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "sdk_sgr_config.h"
+#include "sdk_sgr_types.h"
 
 #if SDK_MODE == GATEWAY_MODE
     #include "device_service.h"
@@ -53,6 +54,12 @@ extern char g_sgr_last_claim_token_id[SGR_CLAIM_TOKEN_ID_LEN];
  * Must be called once before any other function.
  */
 sgr_mw_status_t sgr_mw_init(void);
+
+/**
+ * Register an optional progress/event callback (or NULL to unregister).
+ * Invoked synchronously from the authentication state machine.
+ */
+void sgr_mw_set_event_callback(sgr_sdk_event_cb_t cb, void *ctx);
 
 /* ===================== GATEWAY MODE ===================== */
 #if SDK_MODE == GATEWAY_MODE
@@ -102,8 +109,21 @@ sgr_mw_status_t sgr_mw_gw_run(int device_idx);
 /**
  * Device authenticates via Gateway.
  * Sends CRC32, receives CW, computes RW, returns result.
+ * Non-blocking FSM — returns SGR_MW_BUSY until done.
  */
 sgr_mw_status_t sgr_mw_authenticate_via_gw(void);
+
+/**
+ * Return the current internal step of the authenticate-via-GW FSM.
+ * Values match the internal vgw_step_t enum (0 = OPEN/idle).
+ */
+int sgr_mw_authenticate_via_gw_get_step(void);
+
+/**
+ * Abort the authenticate-via-GW FSM.
+ * Closes any open server connection and resets the FSM to its initial step.
+ */
+void sgr_mw_authenticate_via_gw_abort(void);
 
 /**
  * Verify firmware integrity using the crypto chip.

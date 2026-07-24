@@ -29,6 +29,37 @@
  */
 sgr_sdk_status_t SGR_SDK_Initialize(void);
 
+/**
+ * Register the communication (transport) interface.
+ *
+ * Must be called once, before any flow that talks to the gateway/server
+ * (e.g. before SGR_SDK_Authenticate_Via_GW*). The SDK stores the pointer's
+ * contents (a shallow copy) and routes all frame I/O through the supplied
+ * callbacks, so the developer can plug in MQTT, TCP, UART, SPI, BLE, LoRa, etc.
+ * without modifying SDK internals.
+ *
+ * @param iface  Pointer to a populated interface. `send` and `receive` are
+ *               required; `open` and `close` are optional (may be NULL).
+ *
+ * @return SGR_SDK_OK            if registered.
+ * @return SGR_SDK_INVALID_PARAM if iface is NULL or send/receive is NULL.
+ */
+sgr_sdk_status_t SGR_SDK_SetCommInterface(const sgr_sdk_comm_interface_t *iface);
+
+/**
+ * Register an optional progress/event callback for the authenticate-via-GW flow.
+ *
+ * The callback fires at each step transition (see sgr_sdk_event_t). It is invoked
+ * synchronously from inside the authentication state machine, so it must be short,
+ * non-blocking, and must NOT call other SGR_SDK_* functions.
+ *
+ * @param cb   Callback to invoke, or NULL to unregister.
+ * @param ctx  Opaque pointer passed unchanged to every callback invocation.
+ *
+ * @return SGR_SDK_OK always.
+ */
+sgr_sdk_status_t SGR_SDK_SetEventCallback(sgr_sdk_event_cb_t cb, void *ctx);
+
 /* ===================== DEVICE MODE ===================== */
 #if SDK_MODE == DEVICE_MODE
 
@@ -93,8 +124,70 @@ sgr_sdk_status_t SGR_SDK_BIST(sgr_sdk_bist_result_t *result);
  * @return SGR_SDK_MUTUAL_AUTH_FAILED  if Phase 2 HRW values mismatch.
  * @return SGR_SDK_COMM_ERROR          on transport failure.
  * @return SGR_SDK_TOKEN_ERROR         if the crypto chip failed.
+ * @return SGR_SDK_CLAIM_TOKEN_READY    if the chip is unclaimed (first enrollment).
+ *
+ * Implemented as a convenience wrapper around _NonBlocking() + _Poll().
  */
 sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW(void);
+
+/* ----- Non-blocking (cooperative) authentication API ----- */
+
+/**
+ * Public step identifiers for the authenticate-via-GW state machine.
+ * Useful for diagnostics / status display in the caller's main loop.
+ */
+typedef enum {
+    SGR_SDK_AUTH_STEP_IDLE = 0,        /* No flow active                       */
+    SGR_SDK_AUTH_STEP_OPEN,            /* Opening server connection            */
+    SGR_SDK_AUTH_STEP_SEND_REQUEST,    /* Sending auth request to GW           */
+    SGR_SDK_AUTH_STEP_RECEIVE_CW,      /* Waiting for CW from GW               */
+    SGR_SDK_AUTH_STEP_COMPUTE_RW,      /* Computing RW on crypto chip          */
+    SGR_SDK_AUTH_STEP_SEND_RW,         /* Sending CW echo + RW to GW           */
+    SGR_SDK_AUTH_STEP_RECEIVE_RESULT,  /* Waiting for final result from GW     */
+    SGR_SDK_AUTH_STEP_PHASE2_COMPUTE_HRW, /* Phase 2: computing HRW on chip    */
+    SGR_SDK_AUTH_STEP_PHASE2_SEND_HCW, /* Phase 2: sending HCW to GW           */
+    SGR_SDK_AUTH_STEP_PHASE2_RECEIVE_HRW, /* Phase 2: waiting for cloud HRW    */
+    SGR_SDK_AUTH_STEP_PHASE2_COMPARE,  /* Phase 2: comparing HRW token/cloud   */
+    SGR_SDK_AUTH_STEP_CLOSE            /* Closing connection / handling retry  */
+} sgr_sdk_auth_step_t;
+
+/**
+ * Start a non-blocking authentication flow.
+ * Resets internal state and begins the authentication sequence.
+ * Must be called once before polling with _Poll().
+ *
+ * @return SGR_SDK_OK    if the flow was successfully started.
+ * @return SGR_SDK_ERROR if SDK is not initialized or a flow is already active.
+ */
+sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW_NonBlocking(void);
+
+/**
+ * Advance the authentication state machine by one step.
+ * Must be called repeatedly after _NonBlocking() until it returns
+ * something other than SGR_SDK_BUSY.
+ *
+ * @return SGR_SDK_BUSY        — still in progress, call again.
+ * @return SGR_SDK_OK          — authentication succeeded.
+ * @return SGR_SDK_AUTH_FAILED — gateway rejected the device.
+ * @return SGR_SDK_COMM_ERROR  — communication failure.
+ * @return SGR_SDK_TOKEN_ERROR — crypto chip failure.
+ * @return SGR_SDK_ERROR       — _NonBlocking() was not called first.
+ */
+sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW_Poll(void);
+
+/**
+ * Query current step for diagnostics.
+ * Returns SGR_SDK_AUTH_STEP_IDLE when no flow is active.
+ */
+sgr_sdk_auth_step_t SGR_SDK_Authenticate_Via_GW_GetStep(void);
+
+/**
+ * Abort an in-progress authentication flow.
+ * Closes the server connection and resets internal state.
+ *
+ * @return SGR_SDK_OK    if state was reset (always, even if no flow was active).
+ */
+sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW_Abort(void);
 
 /**
  * Verify firmware integrity using the crypto chip.

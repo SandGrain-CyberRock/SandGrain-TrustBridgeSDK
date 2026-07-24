@@ -9,8 +9,6 @@
  * All state lives in server_ctx_t — no static variables.
  * ============================================================================= */
 
-#include "../../../port/port_comm.h"
-#include "../../../port/port_comm_device.h"
 #include "server.h"
 #include <stddef.h>
 #include <string.h>
@@ -22,6 +20,64 @@
 #include "../../../include/sdk_sgr_config.h"
 
 #define SERVER_TX_BUF_SIZE 512
+
+/* =============================================================================
+ * Transport interface — registered by the application via SGR_SDK_SetCommInterface().
+ *
+ * All frame I/O goes through these callbacks instead of a hard-wired port layer.
+ * The wrappers below adapt the interface to the boolean semantics the SERVER_*
+ * functions expect (true = ok, false = comm error; out_len == 0 means no data).
+ * ============================================================================= */
+static sgr_sdk_comm_interface_t s_comm;
+static bool                     s_comm_set = false;
+
+void SERVER_SetCommInterface(const sgr_sdk_comm_interface_t *iface)
+{
+    if (iface == NULL)
+    {
+        s_comm_set = false;
+        return;
+    }
+    s_comm     = *iface;          /* shallow copy — caller owns ctx */
+    s_comm_set = true;
+}
+
+/* Open the connection. Returns true on success (or true if no open callback was
+ * supplied — the transport is assumed already open). */
+static bool comm_open(const char *device_id)
+{
+    if (!s_comm_set)
+        return false;
+    if (s_comm.open == NULL)
+        return true;
+    return s_comm.open(device_id, s_comm.ctx) == 0;
+}
+
+/* Send one frame. Returns true on success. */
+static bool comm_send(const uint8_t *data, uint16_t len)
+{
+    if (!s_comm_set || s_comm.send == NULL)
+        return false;
+    return s_comm.send(data, len, s_comm.ctx) == 0;
+}
+
+/* Receive one frame. Returns false only on a real comm error; on success
+ * *out_len is the byte count (0 when no data is available yet). */
+static bool comm_receive(uint8_t *buf, uint16_t buf_size, uint16_t *out_len)
+{
+    if (out_len)
+        *out_len = 0;
+    if (!s_comm_set || s_comm.receive == NULL)
+        return false;
+    return s_comm.receive(buf, buf_size, out_len, s_comm.ctx) >= 0;
+}
+
+/* Close the connection (no-op if no close callback was supplied). */
+static void comm_close(void)
+{
+    if (s_comm_set && s_comm.close != NULL)
+        s_comm.close(s_comm.ctx);
+}
 
 /* -----------------------------------------------------------------------------
  * prv_compute_crc_hex
@@ -65,7 +121,7 @@ server_status_t SERVER_Open(server_ctx_t *ctx, const uint8_t *tid)
     {
         status = SERVER_ERROR;
     }
-    else if (!port_comm_init(&ctx->comm, tid_hex))
+    else if (!comm_open(tid_hex))
     {
         status = SERVER_COMM_ERROR;
     }
@@ -85,7 +141,7 @@ server_status_t SERVER_Close(server_ctx_t *ctx)
     if (!ctx)
         return SERVER_ERROR;
 
-    port_comm_close(&ctx->comm);
+    comm_close();
     ctx->rx_len = 0;
     memset(ctx->rx_buf, 0, sizeof(ctx->rx_buf));
     return SERVER_OK;
@@ -116,7 +172,7 @@ server_status_t SERVER_GetCW_Send(server_ctx_t *ctx, const uint8_t *tid)
 
         if (frame_len <= 0)
             status = SERVER_ERROR;
-        else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+        else if (!comm_send(tx_buf, (uint16_t)frame_len))
             status = SERVER_COMM_ERROR;
         else
             status = SERVER_OK;
@@ -131,7 +187,7 @@ server_status_t SERVER_GetCW_Receive(server_ctx_t *ctx, const uint8_t *tid, uint
     rx_response_t   rx;
     char            cw_hex[65];
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         status = SERVER_COMM_ERROR;
     else if (ctx->rx_len == 0)
         status = SERVER_NO_DATA;
@@ -179,7 +235,7 @@ server_status_t SERVER_ReplyRW_Send(server_ctx_t *ctx, const uint8_t *tid, const
 
         if (frame_len <= 0)
             status = SERVER_ERROR;
-        else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+        else if (!comm_send(tx_buf, (uint16_t)frame_len))
             status = SERVER_COMM_ERROR;
         else
             status = SERVER_OK;
@@ -193,7 +249,7 @@ server_status_t SERVER_ReplyRW_Receive(server_ctx_t *ctx, const uint8_t *tid)
     server_status_t status = SERVER_ERROR;
     rx_response_t   rx;
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         status = SERVER_COMM_ERROR;
     else if (ctx->rx_len == 0)
         status = SERVER_NO_DATA;
@@ -243,7 +299,7 @@ server_status_t SERVER_GetRW_Send(server_ctx_t *ctx, const uint8_t *tid, const u
 
         if (frame_len <= 0)
             status = SERVER_ERROR;
-        else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+        else if (!comm_send(tx_buf, (uint16_t)frame_len))
             status = SERVER_COMM_ERROR;
         else
             status = SERVER_OK;
@@ -258,7 +314,7 @@ server_status_t SERVER_GetRW_Receive(server_ctx_t *ctx, const uint8_t *tid, uint
     rx_response_t   rx;
     char            rw_hex[33];
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         status = SERVER_COMM_ERROR;
     else if (ctx->rx_len == 0)
         status = SERVER_NO_DATA;
@@ -300,7 +356,7 @@ server_status_t SERVER_Auth_Result_Send(server_ctx_t *ctx, const uint8_t *tid, c
 
         if (frame_len <= 0)
             status = SERVER_ERROR;
-        else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+        else if (!comm_send(tx_buf, (uint16_t)frame_len))
             status = SERVER_COMM_ERROR;
         else
             status = SERVER_OK;
@@ -340,7 +396,7 @@ server_status_t SERVER_SendFWVerificationBridge(server_ctx_t   *ctx,
 
     if (frame_len <= 0)
         status = SERVER_PARSE_ERROR;
-    else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+    else if (!comm_send(tx_buf, (uint16_t)frame_len))
         status = SERVER_COMM_ERROR;
     else
         status = SERVER_OK;
@@ -386,7 +442,7 @@ server_status_t SERVER_SendInstallationBridge(server_ctx_t  *ctx,
 
     if (frame_len <= 0)
         status = SERVER_PARSE_ERROR;
-    else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+    else if (!comm_send(tx_buf, (uint16_t)frame_len))
         status = SERVER_COMM_ERROR;
     else
         status = SERVER_OK;
@@ -406,7 +462,7 @@ server_status_t SERVER_ReceiveInstallationBridgeResult(server_ctx_t *ctx, bool *
     if (!ctx || !install_ok_out)
         return SERVER_ERROR;
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         return SERVER_COMM_ERROR;
 
     if (ctx->rx_len == 0)
@@ -447,6 +503,8 @@ server_status_t SERVER_SendAuthRequest(server_ctx_t *ctx, const uint8_t *tid)
     uint32_t        crc32     = 0;
     int             frame_len = 0;
 
+    (void)ctx;  /* frame I/O goes through the registered comm interface */
+
     if (bytes_to_hex(tid, 32, tid_hex, sizeof(tid_hex)) != 0)
     {
         status = SERVER_CRC_ERROR;
@@ -465,7 +523,7 @@ server_status_t SERVER_SendAuthRequest(server_ctx_t *ctx, const uint8_t *tid)
         if (frame_len <= 0){
             status = SERVER_PARSE_ERROR;
         }    
-        else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len)){
+        else if (!comm_send(tx_buf, (uint16_t)frame_len)){
             status = SERVER_COMM_ERROR;
         }
         else{
@@ -485,7 +543,7 @@ server_status_t SERVER_ReceiveCW(server_ctx_t *ctx, uint8_t *cw_out)
     server_status_t status = SERVER_ERROR;
     char            cw_hex[65];
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         status = SERVER_COMM_ERROR;
     else if (ctx->rx_len == 0)
         status = SERVER_NO_DATA;
@@ -534,6 +592,8 @@ server_status_t SERVER_SendRW(server_ctx_t *ctx, const uint8_t *cw, const uint8_
     char            rw_hex[33];
     int             frame_len = 0;
 
+    (void)ctx;  /* frame I/O goes through the registered comm interface */
+
     if (bytes_to_hex(cw, 32, cw_hex, sizeof(cw_hex)) != 0)
         status = SERVER_ERROR;
     else if (bytes_to_hex(rw, 16, rw_hex, sizeof(rw_hex)) != 0)
@@ -546,7 +606,7 @@ server_status_t SERVER_SendRW(server_ctx_t *ctx, const uint8_t *cw, const uint8_
 
         if (frame_len <= 0)
             status = SERVER_ERROR;
-        else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+        else if (!comm_send(tx_buf, (uint16_t)frame_len))
             status = SERVER_COMM_ERROR;
         else
             status = SERVER_OK;
@@ -559,7 +619,7 @@ server_status_t SERVER_ReceiveAuthResult(server_ctx_t *ctx, bool *auth_ok_out)
 {
     server_status_t status = SERVER_ERROR;
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         status = SERVER_COMM_ERROR;
     else if (ctx->rx_len == 0)
         status = SERVER_NO_DATA;
@@ -641,7 +701,7 @@ server_status_t SERVER_SendFWVerificationResult(server_ctx_t  *ctx,
 
     if (frame_len <= 0)
         status = SERVER_PARSE_ERROR;
-    else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+    else if (!comm_send(tx_buf, (uint16_t)frame_len))
         status = SERVER_COMM_ERROR;
     else
         status = SERVER_OK;
@@ -688,7 +748,7 @@ server_status_t SERVER_SendInstallationRequest(server_ctx_t  *ctx,
 
     if (frame_len <= 0)
         status = SERVER_PARSE_ERROR;
-    else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+    else if (!comm_send(tx_buf, (uint16_t)frame_len))
         status = SERVER_COMM_ERROR;
     else
         status = SERVER_OK;
@@ -703,7 +763,7 @@ server_status_t SERVER_ReceiveInstallationResult(server_ctx_t *ctx, bool *instal
     if (!ctx || !install_ok_out)
         return SERVER_ERROR;
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         return SERVER_COMM_ERROR;
 
     if (ctx->rx_len == 0)
@@ -760,7 +820,7 @@ server_status_t SERVER_SendHostAuthRequest(server_ctx_t *ctx, const uint8_t *tid
 
     if (frame_len <= 0)
         status = SERVER_PARSE_ERROR;
-    else if (!port_comm_send(&ctx->comm, tx_buf, (uint16_t)frame_len))
+    else if (!comm_send(tx_buf, (uint16_t)frame_len))
         status = SERVER_COMM_ERROR;
     else
         status = SERVER_OK;
@@ -776,7 +836,7 @@ server_status_t SERVER_ReceiveHRW(server_ctx_t *ctx, uint8_t *hrw_out)
     if (!ctx || !hrw_out)
         return SERVER_ERROR;
 
-    if (!port_comm_receive(&ctx->comm, ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
+    if (!comm_receive(ctx->rx_buf, sizeof(ctx->rx_buf) - 1, &ctx->rx_len))
         return SERVER_COMM_ERROR;
     if (ctx->rx_len == 0)
         return SERVER_NO_DATA;
@@ -827,7 +887,7 @@ server_status_t SERVER_ReceiveFWVerificationACK(server_ctx_t *ctx, bool *ack_ok_
     uint8_t  rx_buf[SERVER_RX_BUF_SIZE];
     uint16_t rx_len = 0;
 
-    if (!port_comm_receive(&ctx->comm, rx_buf, sizeof(rx_buf) - 1, &rx_len))
+    if (!comm_receive(rx_buf, sizeof(rx_buf) - 1, &rx_len))
         return SERVER_COMM_ERROR;
 
     if (rx_len == 0)

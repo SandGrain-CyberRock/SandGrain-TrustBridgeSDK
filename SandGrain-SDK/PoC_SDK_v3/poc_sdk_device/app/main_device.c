@@ -43,7 +43,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <mosquitto.h>
-#include "sdk_sgr_user_api.h"
+#include "sandgrain.h"
+#include "comm_adapter.h"
 #include "fi_device.h"
 #include "sha256.h"
 #include "crypto.h"
@@ -431,6 +432,36 @@ static void stop_listener(void)
     mosquitto_lib_cleanup();
 }
 
+/* ──────────────────────────────────────────────────────────────────────────────
+ * Progress event handler (demo).
+ *
+ * Invoked synchronously by the SDK at each authentication step. Keep it short
+ * and do not call SGR_SDK_* functions from here — just observe. A real device
+ * would drive LEDs/UI or log over its own diagnostic channel.
+ * ────────────────────────────────────────────────────────────────────────────── */
+static const char *auth_event_name(sgr_sdk_event_t e)
+{
+    switch (e)
+    {
+        case SGR_SDK_EVT_AUTH_STARTED:      return "AUTH_STARTED";
+        case SGR_SDK_EVT_AUTH_REQUEST_SENT: return "AUTH_REQUEST_SENT";
+        case SGR_SDK_EVT_CW_RECEIVED:       return "CW_RECEIVED";
+        case SGR_SDK_EVT_RW_COMPUTED:       return "RW_COMPUTED";
+        case SGR_SDK_EVT_RW_SENT:           return "RW_SENT";
+        case SGR_SDK_EVT_RESULT_RECEIVED:   return "RESULT_RECEIVED";
+        case SGR_SDK_EVT_AUTH_COMPLETE:     return "AUTH_COMPLETE";
+        case SGR_SDK_EVT_AUTH_FAILED:       return "AUTH_FAILED";
+        case SGR_SDK_EVT_RETRY:             return "RETRY";
+        default:                            return "UNKNOWN";
+    }
+}
+
+static void on_auth_event(sgr_sdk_event_t e, void *ctx)
+{
+    (void)ctx;
+    printf("        [EVT] %s\n", auth_event_name(e));
+}
+
 int main(int argc, char **argv)
 {
 #ifdef WIN32
@@ -445,6 +476,23 @@ int main(int argc, char **argv)
     printf("=====================================================\n");
     printf("  SGR SDK — DEVICE TEST\n");
     printf("=====================================================\n\n");
+
+    /* ------------------------------------------------------------------
+     * Register the communication transport (socket/MQTT via port_comm.c).
+     * Swap this adapter for your own to run over UART/SPI/BLE/LoRa/etc.
+     * ------------------------------------------------------------------ */
+    sgr_sdk_comm_interface_t comm;
+    comm_adapter_get_interface(&comm);
+    if (SGR_SDK_SetCommInterface(&comm) != SGR_SDK_OK)
+    {
+        printf("  ✖ SGR_SDK_SetCommInterface failed\n");
+        return -1;
+    }
+
+    /* ------------------------------------------------------------------
+     * Register an optional progress callback (drives the [EVT] lines).
+     * ------------------------------------------------------------------ */
+    SGR_SDK_SetEventCallback(on_auth_event, NULL);
 
     /* ------------------------------------------------------------------
      * Initialize Device SDK

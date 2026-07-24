@@ -73,7 +73,7 @@
         server_ctx_t    srv;              /* MQTT context — one per channel */
     } gw_ctx_t;
 
-    static port_comm_device_t   gw_port_table[MAX_DEVICES];
+    static port_comm_device_t  *gw_port_table[MAX_DEVICES];
     static device_service_ctx_t gw_dev_ctx_table[MAX_DEVICES];
     static gw_ctx_t             gw_ctx_table[MAX_DEVICES];
 
@@ -128,9 +128,14 @@ sgr_mw_status_t sgr_mw_init(void)
         {
             char channel_id[16];
             snprintf(channel_id, sizeof(channel_id), "channel_%d", i);
-            memset(&gw_port_table[i],    0, sizeof(port_comm_device_t));
             memset(&gw_dev_ctx_table[i], 0, sizeof(device_service_ctx_t));
-            gw_dev_ctx_table[i].comm = &gw_port_table[i];
+            gw_port_table[i] = port_comm_device_create();
+            if (gw_port_table[i] == NULL)
+            {
+                MW_LOG("ERROR — channel_%d port_comm_device_create failed", i);
+                return SGR_MW_ERROR;
+            }
+            gw_dev_ctx_table[i].comm = gw_port_table[i];
             if (DEVICE_Init(&gw_dev_ctx_table[i], channel_id) != DEVICE_OK)
             {
                 MW_LOG("ERROR — channel_%d init failed", i);
@@ -1474,6 +1479,23 @@ static struct {
     uint8_t         hrw_cloud[16];  /* Phase 2: HRW returned by cloud via GW   */
 } vgw_ctx;
 
+/* ---- Optional progress/event callback (registered by the application) ---- */
+static sgr_sdk_event_cb_t s_event_cb  = NULL;
+static void              *s_event_ctx = NULL;
+
+void sgr_mw_set_event_callback(sgr_sdk_event_cb_t cb, void *ctx)
+{
+    s_event_cb  = cb;
+    s_event_ctx = ctx;
+}
+
+/* Fire one event to the registered callback (no-op if none registered). */
+static void vgw_emit(sgr_sdk_event_t event)
+{
+    if (s_event_cb != NULL)
+        s_event_cb(event, s_event_ctx);
+}
+
 sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
 {
     sgr_mw_status_t status     = SGR_MW_BUSY;
@@ -1490,6 +1512,9 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             memset(&vgw_ctx, 0, sizeof(vgw_ctx));
             vgw_ctx.attempt        = saved_attempt;
             vgw_ctx.pending_result = SGR_MW_ERROR;
+
+            if (vgw_ctx.attempt == 0)
+                vgw_emit(SGR_SDK_EVT_AUTH_STARTED);
 
             MW_LOG("────────────────────────────────────────");
             MW_LOG("DEVICE — Authenticate via GW");
@@ -1525,6 +1550,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             else
             {
                 MW_LOG("[1/4] Auth request sent ✔");
+                vgw_emit(SGR_SDK_EVT_AUTH_REQUEST_SENT);
                 vgw_ctx.step = VGW_STEP_RECEIVE_CW;
             }
             status = SGR_MW_BUSY;
@@ -1548,6 +1574,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
                 MW_LOG("[2/4] Challenge Word received from GW ✔");
                 for (int i = 0; i < 32; i++) printf("%02x", vgw_ctx.cw[i]);
                 printf("\n");
+                vgw_emit(SGR_SDK_EVT_CW_RECEIVED);
                 vgw_ctx.step = VGW_STEP_COMPUTE_RW;
                 status       = SGR_MW_BUSY;
             }
@@ -1576,6 +1603,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             else
             {
                 MW_LOG("[3/4] Response Word computed ✔");
+                vgw_emit(SGR_SDK_EVT_RW_COMPUTED);
                 vgw_ctx.step = VGW_STEP_SEND_RW;
             }
             status = SGR_MW_BUSY;
@@ -1599,6 +1627,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
                 MW_LOG("[3/4] RW: ");
                 for (int i = 0; i < 16; i++) printf("%02x", vgw_ctx.rw[i]);
                 printf("\n");
+                vgw_emit(SGR_SDK_EVT_RW_SENT);
                 vgw_ctx.step = VGW_STEP_RECEIVE_RESULT;
             }
             status = SGR_MW_BUSY;
@@ -1615,6 +1644,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             else if (srv_status == SERVER_AUTH_FAILED)
             {
                 MW_LOG("[4/4] GW rejected device — AUT_NOK ✖");
+                vgw_emit(SGR_SDK_EVT_RESULT_RECEIVED);
                 vgw_ctx.pending_result = SGR_MW_AUTH_FAILED;
                 vgw_ctx.step           = VGW_STEP_CLOSE;
                 status                 = SGR_MW_BUSY;
@@ -1642,6 +1672,10 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
+                /* A verdict frame arrived (AUT_OK) — tell the app before we
+                 * branch, so the event fires on both the Phase-2 and the
+                 * harness-skip path. */
+                vgw_emit(SGR_SDK_EVT_RESULT_RECEIVED);
                 /* Options 2/3 (fault-injection harness) emulate the main-branch
                  * single-phase flow — finish here without entering Phase 2. */
                 if (FI_SKIP_PHASE2_ACTIVE)
@@ -1777,6 +1811,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             {
                 vgw_ctx.attempt++;
                 MW_LOG("[RETRY] Attempt %d / %d", vgw_ctx.attempt, MAX_RETRIES);
+                vgw_emit(SGR_SDK_EVT_RETRY);
                 vgw_ctx.step = VGW_STEP_OPEN;
                 status       = SGR_MW_BUSY;
             }
@@ -1788,6 +1823,10 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
                 else if (vgw_ctx.pending_result != SGR_MW_OK)
                     MW_LOG("[FAILED] Device authentication failed after %d attempts", vgw_ctx.attempt);
                 status       = vgw_ctx.pending_result;
+                if (vgw_ctx.pending_result == SGR_MW_OK)
+                    vgw_emit(SGR_SDK_EVT_AUTH_COMPLETE);
+                else
+                    vgw_emit(SGR_SDK_EVT_AUTH_FAILED);
                 vgw_ctx.step = VGW_STEP_OPEN;
             }
             break;
@@ -1798,6 +1837,18 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
     }
 
     return status;
+}
+
+int sgr_mw_authenticate_via_gw_get_step(void)
+{
+    return (int)vgw_ctx.step;
+}
+
+void sgr_mw_authenticate_via_gw_abort(void)
+{
+    SERVER_Close(&vgw_srv_ctx);
+    memset(&vgw_ctx, 0, sizeof(vgw_ctx));
+    vgw_ctx.step = VGW_STEP_OPEN;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

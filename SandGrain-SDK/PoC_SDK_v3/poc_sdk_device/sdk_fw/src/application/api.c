@@ -10,6 +10,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "../middleware/sgr_mw.h"
 #include "../../include/sdk_sgr_errors.h"
 #include "../../include/sdk_sgr_types.h"
@@ -19,6 +20,7 @@
 #if SDK_MODE == DEVICE_MODE
     #include "../services/crypto/crypto.h"
 #endif
+#include "../services/server/server.h"
 
 #if SDK_MODE == GATEWAY_MODE
     #include "../services/devices/device_service.h"
@@ -69,6 +71,33 @@ sgr_sdk_status_t SGR_SDK_Initialize(void)
 }
 
 /* =============================================================================
+ * SGR_SDK_SetCommInterface
+ *
+ * Registers the user-supplied transport. Forwards to the SERVER service, which
+ * is the single consumer of the comm interface for gateway/server frame I/O.
+ * ============================================================================= */
+sgr_sdk_status_t SGR_SDK_SetCommInterface(const sgr_sdk_comm_interface_t *iface)
+{
+    if (iface == NULL || iface->send == NULL || iface->receive == NULL)
+        return SGR_SDK_INVALID_PARAM;
+
+    SERVER_SetCommInterface(iface);
+    return SGR_SDK_OK;
+}
+
+/* =============================================================================
+ * SGR_SDK_SetEventCallback
+ *
+ * Registers an optional progress callback for the authenticate-via-GW flow.
+ * Forwards to the middleware, which fires events from its state machine.
+ * ============================================================================= */
+sgr_sdk_status_t SGR_SDK_SetEventCallback(sgr_sdk_event_cb_t cb, void *ctx)
+{
+    sgr_mw_set_event_callback(cb, ctx);
+    return SGR_SDK_OK;
+}
+
+/* =============================================================================
  * DEVICE MODE
  * ============================================================================= */
 #if SDK_MODE == DEVICE_MODE
@@ -103,47 +132,94 @@ sgr_sdk_status_t SGR_SDK_BIST(sgr_sdk_bist_result_t *result)
     return chip_result.passed ? SGR_SDK_OK : SGR_SDK_AUTH_FAILED;
 }
 
+
+/* ---- Non-blocking authenticate-via-GW: state shared by the four API funcs --- */
+static bool vgw_flow_active = false;
+
+static sgr_sdk_status_t map_mw_to_sdk(sgr_mw_status_t mw_status)
+{
+    if (mw_status == SGR_MW_OK)           return SGR_SDK_OK;
+    if (mw_status == SGR_MW_AUTH_FAILED)  return SGR_SDK_AUTH_FAILED;
+    if (mw_status == SGR_MW_MUTUAL_AUTH_FAILED) return SGR_SDK_MUTUAL_AUTH_FAILED;
+    if (mw_status == SGR_MW_CLAIM_TOKEN)  return SGR_SDK_CLAIM_TOKEN_READY;
+    if (mw_status == SGR_MW_COMM_ERROR)   return SGR_SDK_COMM_ERROR;
+    if (mw_status == SGR_MW_TOKEN_ERROR)  return SGR_SDK_TOKEN_ERROR;
+    return SGR_SDK_ERROR;
+}
+
+sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW_NonBlocking(void)
+{
+    if (vgw_flow_active)
+        return SGR_SDK_ERROR;
+
+    /* Make sure the MW FSM is at its initial step. It normally is, but a prior
+     * Abort() or a fresh boot guarantees this. */
+    sgr_mw_authenticate_via_gw_abort();
+    vgw_flow_active = true;
+    return SGR_SDK_OK;
+}
+
+sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW_Poll(void)
+{
+    if (!vgw_flow_active)
+        return SGR_SDK_ERROR;
+
+    sgr_mw_status_t mw_status = sgr_mw_authenticate_via_gw();
+    if (mw_status == SGR_MW_BUSY)
+        return SGR_SDK_BUSY;
+
+    /* Terminal — release the flow so a fresh start is possible. */
+    vgw_flow_active = false;
+    return map_mw_to_sdk(mw_status);
+}
+
+sgr_sdk_auth_step_t SGR_SDK_Authenticate_Via_GW_GetStep(void)
+{
+    if (!vgw_flow_active)
+        return SGR_SDK_AUTH_STEP_IDLE;
+
+    /* Map MW internal step (vgw_step_t) → public step. Order matches the
+     * vgw_step_t enum in sgr_mw.c. */
+    static const sgr_sdk_auth_step_t map[] = {
+        SGR_SDK_AUTH_STEP_OPEN,
+        SGR_SDK_AUTH_STEP_SEND_REQUEST,
+        SGR_SDK_AUTH_STEP_RECEIVE_CW,
+        SGR_SDK_AUTH_STEP_COMPUTE_RW,
+        SGR_SDK_AUTH_STEP_SEND_RW,
+        SGR_SDK_AUTH_STEP_RECEIVE_RESULT,
+        SGR_SDK_AUTH_STEP_PHASE2_COMPUTE_HRW,
+        SGR_SDK_AUTH_STEP_PHASE2_SEND_HCW,
+        SGR_SDK_AUTH_STEP_PHASE2_RECEIVE_HRW,
+        SGR_SDK_AUTH_STEP_PHASE2_COMPARE,
+        SGR_SDK_AUTH_STEP_CLOSE
+    };
+    int step = sgr_mw_authenticate_via_gw_get_step();
+    if (step < 0 || step >= (int)(sizeof(map) / sizeof(map[0])))
+        return SGR_SDK_AUTH_STEP_IDLE;
+    return map[step];
+}
+
+sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW_Abort(void)
+{
+    sgr_mw_authenticate_via_gw_abort();
+    vgw_flow_active = false;
+    return SGR_SDK_OK;
+}
+
 sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW(void)
 {
-    sgr_sdk_status_t sdk_status = SGR_SDK_ERROR;
-    sgr_mw_status_t  mw_status  = SGR_MW_BUSY;
+    sgr_sdk_status_t s = SGR_SDK_Authenticate_Via_GW_NonBlocking();
+    if (s != SGR_SDK_OK)
+        return s;
 
+    sgr_sdk_status_t poll;
     do
     {
-        mw_status = sgr_mw_authenticate_via_gw();
+        poll = SGR_SDK_Authenticate_Via_GW_Poll();
     }
-    while (mw_status == SGR_MW_BUSY);
+    while (poll == SGR_SDK_BUSY);
 
-    if (mw_status == SGR_MW_OK)
-    {
-        sdk_status = SGR_SDK_OK;
-    }
-    else if (mw_status == SGR_MW_AUTH_FAILED)
-    {
-        sdk_status = SGR_SDK_AUTH_FAILED;
-    }
-    else if (mw_status == SGR_MW_MUTUAL_AUTH_FAILED)
-    {
-        sdk_status = SGR_SDK_MUTUAL_AUTH_FAILED;
-    }
-    else if (mw_status == SGR_MW_CLAIM_TOKEN)
-    {
-        sdk_status = SGR_SDK_CLAIM_TOKEN_READY;
-    }
-    else if (mw_status == SGR_MW_COMM_ERROR)
-    {
-        sdk_status = SGR_SDK_COMM_ERROR;
-    }
-    else if (mw_status == SGR_MW_TOKEN_ERROR)
-    {
-        sdk_status = SGR_SDK_TOKEN_ERROR;
-    }
-    else
-    {
-        sdk_status = SGR_SDK_ERROR;
-    }
-
-    return sdk_status;
+    return poll;
 }
 
 sgr_sdk_status_t SGR_SDK_Verification_FW(const uint8_t *fw_data,
