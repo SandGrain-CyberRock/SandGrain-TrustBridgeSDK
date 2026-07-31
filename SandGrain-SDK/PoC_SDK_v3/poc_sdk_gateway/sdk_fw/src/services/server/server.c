@@ -205,28 +205,48 @@ server_status_t SERVER_ReplyRW_Receive(server_ctx_t *ctx, const uint8_t *tid)
             status = SERVER_PARSE_ERROR;
         else if (rx.status_code != 0)
             status = SERVER_SERVER_ERROR;
-        else if (strstr(rx.payload, "\"auth_status\":\"CLAIM_TOKEN\"") != NULL)
+        else
         {
-            /* CR returned CLAIM_TOKEN — device not yet claimed by tenant.
-             * Extract claim_token_id from payload so the GW can forward it. */
-            ctx->claim_token_id[0] = '\0';
-            const char *p = strstr(rx.payload, "\"claim_token_id\":\"");
-            if (p != NULL)
+            /* Mutual-auth flow: the checkstatus verdict also carries HRW2 (the
+             * host-auth response word). Capture it — the GW relays it to the
+             * device in the verdict so host-auth is verified locally, replacing
+             * the old separate requestRW Phase 2. Empty if absent. */
+            ctx->hrw2_hex[0] = '\0';
+            const char *h = strstr(rx.payload, "\"HRW2\":\"");
+            if (h != NULL)
             {
-                p += strlen("\"claim_token_id\":\"");
-                const char *end = strchr(p, '"');
-                if (end != NULL && (size_t)(end - p) < sizeof(ctx->claim_token_id))
+                h += strlen("\"HRW2\":\"");
+                const char *hend = strchr(h, '"');
+                if (hend != NULL && (size_t)(hend - h) < sizeof(ctx->hrw2_hex))
                 {
-                    memcpy(ctx->claim_token_id, p, (size_t)(end - p));
-                    ctx->claim_token_id[end - p] = '\0';
+                    memcpy(ctx->hrw2_hex, h, (size_t)(hend - h));
+                    ctx->hrw2_hex[hend - h] = '\0';
                 }
             }
-            status = SERVER_CLAIM_TOKEN;
+
+            if (strstr(rx.payload, "\"auth_status\":\"CLAIM_TOKEN\"") != NULL)
+            {
+                /* CR returned CLAIM_TOKEN — device not yet claimed by tenant.
+                 * Extract claim_token_id from payload so the GW can forward it. */
+                ctx->claim_token_id[0] = '\0';
+                const char *p = strstr(rx.payload, "\"claim_token_id\":\"");
+                if (p != NULL)
+                {
+                    p += strlen("\"claim_token_id\":\"");
+                    const char *end = strchr(p, '"');
+                    if (end != NULL && (size_t)(end - p) < sizeof(ctx->claim_token_id))
+                    {
+                        memcpy(ctx->claim_token_id, p, (size_t)(end - p));
+                        ctx->claim_token_id[end - p] = '\0';
+                    }
+                }
+                status = SERVER_CLAIM_TOKEN;
+            }
+            else if (strstr(rx.payload, "\"auth_status\":\"AUTH_OK\"") == NULL)
+                status = SERVER_AUTH_FAILED;
+            else
+                status = SERVER_OK;
         }
-        else if (strstr(rx.payload, "\"auth_status\":\"AUTH_OK\"") == NULL)
-            status = SERVER_AUTH_FAILED;
-        else
-            status = SERVER_OK;
     }
 
     return status;

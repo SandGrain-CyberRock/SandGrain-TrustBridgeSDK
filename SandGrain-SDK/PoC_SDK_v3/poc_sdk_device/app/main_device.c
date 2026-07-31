@@ -37,14 +37,15 @@
     #include <windows.h>
 #else
     #include <pthread.h>
+    #include <signal.h>   /* ignore SIGPIPE — a broken gateway write must not kill us */
 #endif
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <mosquitto.h>
 #include "sandgrain.h"
 #include "comm_adapter.h"
+#include "port_comm.h"   /* persistent-link + RUN_AUTH trigger (device is MQTT-free) */
 #include "fi_device.h"
 #include "sha256.h"
 #include "crypto.h"
@@ -266,33 +267,28 @@ static int run_fw_verification(int use_valid_rw)
 }
 
 /* =============================================================================
- * BE-driven listener mode (TrustBridge integration)
+ * BE-driven listener mode (TrustBridge integration) — MQTT-free
  *
- * When RUN_MODE=listener (or --listen), the device subscribes to
- *   sandgrain/v1/{tid}/cmd/run_auth   (payload {"mode":1|2|3})
- * and runs mutual auth on trigger, publishing presence to
- *   sandgrain/v1/{tid}/status        ("online"/"offline")
- * The gateway publishes gw_log + the terminal auth_result.
+ * The device no longer talks MQTT. It keeps a persistent TCP link to the
+ * gateway and announces itself with "HELLO <tid> TRIGGER". The gateway proxies
+ * this device's presence (sandgrain/v1/{tid}/status) and subscribes its
+ * cmd/run_auth on its behalf; when TrustBridge publishes {"mode":1|2|3} the
+ * gateway relays it down the link as "RUN_AUTH <mode>", which triggers auth.
  *
- * The listener runs on mosquitto's background thread (mosquitto_loop_start);
- * the interactive menu runs in parallel on the main thread. g_sdk_mutex
- * serializes SDK calls so the two paths can't race for the gateway socket.
+ * The listener runs on a background thread; the interactive menu runs in
+ * parallel on the main thread. g_sdk_mutex serializes SDK calls (and the socket)
+ * so the two paths can't race.
  * ============================================================================= */
-static struct mosquitto *g_mosq        = NULL;
-static char              g_tid_hex[65] = {0};
+static char g_tid_hex[65] = {0};
 
-static void on_connect(struct mosquitto *mosq, void *obj, int rc)
-{
-    (void)obj;
-    if (rc != 0) { printf("[MQTT] Connection failed (rc=%d)\n", rc); return; }
-    char topic[160];
-    snprintf(topic, sizeof(topic), "sandgrain/v1/%s/cmd/run_auth", g_tid_hex);
-    mosquitto_subscribe(mosq, NULL, topic, 0);
-    char status_topic[160];
-    snprintf(status_topic, sizeof(status_topic), "sandgrain/v1/%s/status", g_tid_hex);
-    mosquitto_publish(mosq, NULL, status_topic, (int)strlen("online"), "online", 0, true);
-    printf("[MQTT] Connected — subscribed to %s, published status=online\n", topic);
-}
+static void print_menu(void);   /* defined near main(); reprinted after a triggered run */
+
+/* Portable millisecond sleep for the idle poll backoff. */
+#ifdef WIN32
+    static void sdk_sleep_ms(int ms) { Sleep((DWORD)ms); }
+#else
+    static void sdk_sleep_ms(int ms) { usleep((useconds_t)ms * 1000); }
+#endif
 
 /* Run auth with fault-injection flags matching the menu's options 1/2/3.
  * Caller must hold g_sdk_mutex. */
@@ -335,101 +331,115 @@ static void run_auth_listener(int mode)
     else                                      printf("  ✖ Authentication ERROR (status=%d)\n", st);
 }
 
-static void on_message(struct mosquitto *mosq, void *obj,
-                       const struct mosquitto_message *msg)
-{
-    (void)mosq; (void)obj;
-    if (!msg || !msg->payload) return;
-    char payload[256];
-    int plen = msg->payloadlen < (int)sizeof(payload) - 1 ? msg->payloadlen : (int)sizeof(payload) - 1;
-    memcpy(payload, msg->payload, plen);
-    payload[plen] = '\0';
-    printf("\n[MQTT] Trigger received: %s\n", payload);
+/* Portable background thread for the trigger listener. */
+#ifdef WIN32
+    #define THREAD_RET     DWORD WINAPI
+    #define THREAD_RETVAL  0
+    static HANDLE    g_listener_thread = NULL;
+#else
+    #define THREAD_RET     void *
+    #define THREAD_RETVAL  NULL
+    static pthread_t g_listener_thread;
+    static int       g_listener_started = 0;
+#endif
+static volatile int g_listener_run = 0;
 
-    int mode = 1;  /* default to normal auth */
-    const char *p = strstr(payload, "mode");
-    if (p) { while (*p && (*p < '1' || *p > '3')) p++;
-             if (*p >= '1' && *p <= '3') { mode = *p - '0'; } }
-
-    sdk_mutex_lock();
-    run_auth_listener(mode);
-    sdk_mutex_unlock();
-
-    printf("\n  Option: ");   /* re-prompt menu after BE-triggered run */
-    fflush(stdout);
-}
-
-static void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
-{
-    (void)mosq; (void)obj;
-    if (rc != 0) printf("[MQTT] Unexpectedly disconnected (rc=%d) — reconnecting...\n", rc);
-}
-
-/* Non-blocking: sets up MQTT, kicks off mosquitto's background loop, returns.
- * Returns 0 on success, -1 if MQTT couldn't be brought up (caller continues
- * with menu only). */
-static int start_listener(void)
+/* Resolve this device's TID (crypto chip, else DEVICE_TID env) into g_tid_hex. */
+static int resolve_device_tid(void)
 {
     uint8_t tid_bytes[32] = {0};
     if (crypto_get_id(tid_bytes, sizeof(tid_bytes)) == SGR_CRYPTO_OK) {
         bytes_to_hex(tid_bytes, sizeof(tid_bytes), g_tid_hex, sizeof(g_tid_hex));
-    } else {
-        const char *env_tid = getenv("DEVICE_TID");
-        if (env_tid && env_tid[0]) {
-            strncpy(g_tid_hex, env_tid, sizeof(g_tid_hex) - 1);
-            printf("[LISTENER] crypto chip TID unavailable — using DEVICE_TID env\n");
-        } else {
-            printf("[LISTENER] Cannot determine TID (no crypto chip, no DEVICE_TID) — listener disabled\n");
-            return -1;
-        }
+        return 0;
     }
+    const char *env_tid = getenv("DEVICE_TID");
+    if (env_tid && env_tid[0]) {
+        strncpy(g_tid_hex, env_tid, sizeof(g_tid_hex) - 1);
+        printf("[LISTENER] crypto chip TID unavailable — using DEVICE_TID env\n");
+        return 0;
+    }
+    printf("[LISTENER] Cannot determine TID (no crypto chip, no DEVICE_TID) — listener disabled\n");
+    return -1;
+}
+
+/* Keep the persistent gateway link up and run auth when the gateway relays a
+ * "RUN_AUTH <mode>" trigger. Holds g_sdk_mutex around the poll + auth so it can't
+ * race the interactive menu for the socket; releases it during the idle sleep. */
+static THREAD_RET trigger_listener_main(void *arg)
+{
+    (void)arg;
+    while (g_listener_run)
+    {
+        int mode = 0, got = 0;
+        sdk_mutex_lock();
+        if (!port_comm_is_linked())
+        {
+            if (port_comm_connect_persistent(g_tid_hex, /*wants_trigger=*/true))
+                printf("[LINK] Gateway link up — sent HELLO %s TRIGGER\n", g_tid_hex);
+        }
+        if (port_comm_is_linked())
+            got = port_comm_poll_trigger(&mode);
+        if (got)
+        {
+            printf("\n[TRIGGER] RUN_AUTH mode %d relayed by gateway\n", mode);
+            run_auth_listener(mode);
+            printf("\n");
+            print_menu();   /* reprint the whole menu so it stays visible + usable */
+        }
+        sdk_mutex_unlock();
+        if (!got)
+            sdk_sleep_ms(50);
+    }
+    return THREAD_RETVAL;
+}
+
+/* Start the persistent-link trigger listener in the background. Returns 0 on
+ * success, -1 if the TID can't be determined (menu still runs). */
+static int start_listener(void)
+{
+    if (resolve_device_tid() != 0)
+        return -1;
     printf("[LISTENER] TID: %s\n", g_tid_hex);
 
-    mosquitto_lib_init();
-    g_mosq = mosquitto_new(g_tid_hex, true, NULL);
-    if (!g_mosq) { printf("[LISTENER] mosquitto_new failed — listener disabled\n"); mosquitto_lib_cleanup(); return -1; }
-    mosquitto_connect_callback_set(g_mosq, on_connect);
-    mosquitto_message_callback_set(g_mosq, on_message);
-    mosquitto_disconnect_callback_set(g_mosq, on_disconnect);
-
-    char will_topic[160];
-    snprintf(will_topic, sizeof(will_topic), "sandgrain/v1/%s/status", g_tid_hex);
-    mosquitto_will_set(g_mosq, will_topic, (int)strlen("offline"), "offline", 0, true);
-
-    /* Authenticate only when MQTT_USER is set; otherwise connect anonymously
-     * (default). Lets the device reach a broker that requires credentials. */
-    const char *mqtt_user = MQTT_USER;
-    if (mqtt_user && mqtt_user[0]) {
-        const char *mqtt_pass = MQTT_PASS;
-        mosquitto_username_pw_set(g_mosq, mqtt_user, (mqtt_pass && mqtt_pass[0]) ? mqtt_pass : NULL);
-    }
-
-    if (mosquitto_connect(g_mosq, MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE) != MOSQ_ERR_SUCCESS) {
-        printf("[LISTENER] Cannot connect to MQTT broker at %s:%d — listener disabled\n", MQTT_BROKER, MQTT_PORT);
-        mosquitto_destroy(g_mosq); g_mosq = NULL;
-        mosquitto_lib_cleanup();
+    g_listener_run = 1;
+#ifdef WIN32
+    g_listener_thread = CreateThread(NULL, 0,
+        (LPTHREAD_START_ROUTINE)trigger_listener_main, NULL, 0, NULL);
+    if (!g_listener_thread) {
+        g_listener_run = 0;
+        printf("[LISTENER] thread start failed — listener disabled\n");
         return -1;
     }
-
-    if (mosquitto_loop_start(g_mosq) != MOSQ_ERR_SUCCESS) {
-        printf("[LISTENER] mosquitto_loop_start failed — listener disabled\n");
-        mosquitto_disconnect(g_mosq);
-        mosquitto_destroy(g_mosq); g_mosq = NULL;
-        mosquitto_lib_cleanup();
+#else
+    if (pthread_create(&g_listener_thread, NULL, trigger_listener_main, NULL) != 0) {
+        g_listener_run = 0;
+        printf("[LISTENER] thread start failed — listener disabled\n");
         return -1;
     }
-
-    printf("[READY] Listening for TrustBridge triggers on sandgrain/v1/%s/cmd/run_auth\n\n", g_tid_hex);
+    g_listener_started = 1;
+#endif
+    printf("[READY] Persistent gateway link; waiting for TrustBridge RUN_AUTH triggers\n\n");
     return 0;
 }
 
 static void stop_listener(void)
 {
-    if (!g_mosq) return;
-    mosquitto_loop_stop(g_mosq, true);
-    mosquitto_disconnect(g_mosq);
-    mosquitto_destroy(g_mosq); g_mosq = NULL;
-    mosquitto_lib_cleanup();
+    if (!g_listener_run)
+        return;
+    g_listener_run = 0;
+#ifdef WIN32
+    if (g_listener_thread) {
+        WaitForSingleObject(g_listener_thread, 2000);
+        CloseHandle(g_listener_thread);
+        g_listener_thread = NULL;
+    }
+#else
+    if (g_listener_started) {
+        pthread_join(g_listener_thread, NULL);
+        g_listener_started = 0;
+    }
+#endif
+    port_comm_shutdown();
 }
 
 /* ──────────────────────────────────────────────────────────────────────────────
@@ -462,12 +472,49 @@ static void on_auth_event(sgr_sdk_event_t e, void *ctx)
     printf("        [EVT] %s\n", auth_event_name(e));
 }
 
+/* Print the interactive menu. Shared by the main loop and the trigger listener
+ * (which reprints it after a BE-triggered run so the menu stays visible — the
+ * trailing "Option:" alone is swallowed by run_device.sh's line-buffered pipe). */
+static void print_menu(void)
+{
+    printf("=====================================================\n");
+    printf("  Select test option:\n");
+    printf("  --- BIST ---\n");
+    printf("  0. BIST — Built-In Self-Test (crypto chip)\n");
+    printf("  --- Authentication ---\n");
+    printf("  1. Mutual Authentication (no fault injection)\n");
+    printf("  2. Fault injection (CW: 2 bits, CW echo: 1 bit, RW: 1 bit)\n");
+    printf("  3. Fault injection — Error Management stress (CW: 3 bits, CW echo: 2 bits)\n");
+    printf("  --- FW Verification ---\n");
+    printf("  4. FW Verification — correct RW  (expect FW_OK, saves RW_verify)\n");
+    printf("  5. FW Verification — wrong RW    (expect FW_NOK)\n");
+    printf("  --- Installation ---\n");
+    printf("  6. Installation    — request install auth (run option 4 first)\n");
+    printf("  --- \n");
+    printf("  7. Exit\n");
+    printf("=====================================================\n");
+    printf("  Option: ");
+    fflush(stdout);
+}
+
 int main(int argc, char **argv)
 {
 #ifdef WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+#else
+    /* A write to a gateway socket the peer already closed must return EPIPE, not
+     * terminate the process (default SIGPIPE action) — the persistent link makes
+     * a transient broken write survivable, so the reconnect loop can recover. */
+    signal(SIGPIPE, SIG_IGN);
 #endif
+
+    /* Line-buffer stdout so --listen auth-flow logs appear live even when
+     * stdout is a pipe (run_device.sh timestamps output via `| _stamp`).
+     * Without this the device relies on an external `stdbuf`/`gstdbuf` wrapper,
+     * absent on a stock macOS (no coreutils), so only the explicitly-flushed
+     * menu prints and the streamed flow logs stay trapped in the pipe buffer. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
 
     sgr_sdk_status_t status = SGR_SDK_ERROR;
     int option = 0;
@@ -516,16 +563,16 @@ int main(int argc, char **argv)
     /* Initialize the SDK-call mutex once before either input surface can run. */
     sdk_mutex_init();
 
-    /* BE-driven listener (RUN_MODE=listener or --listen): subscribes to
-     * cmd/run_auth in a background thread, then falls through so the menu
-     * runs in parallel on the main thread. Both paths serialize SDK calls
-     * via g_sdk_mutex. */
+    /* BE-driven listener (RUN_MODE=listener or --listen): opens the persistent
+     * gateway link (HELLO + TRIGGER) in a background thread and runs auth on a
+     * relayed RUN_AUTH, then falls through so the menu runs in parallel on the
+     * main thread. Both paths serialize SDK calls via g_sdk_mutex. */
     {
         int listen = (getenv("RUN_MODE") && strcmp(getenv("RUN_MODE"), "listener") == 0);
         for (int i = 1; i < argc; i++)
             if (strcmp(argv[i], "--listen") == 0) listen = 1;
         if (listen)
-            start_listener();   /* failure logs and disables MQTT, menu still runs */
+            start_listener();   /* failure logs and disables the listener; menu still runs */
     }
 
     /* ------------------------------------------------------------------
@@ -534,23 +581,7 @@ int main(int argc, char **argv)
      * ------------------------------------------------------------------ */
     while (1)
     {
-        printf("=====================================================\n");
-        printf("  Select test option:\n");
-        printf("  --- BIST ---\n");
-        printf("  0. BIST — Built-In Self-Test (crypto chip)\n");
-        printf("  --- Authentication ---\n");
-        printf("  1. Mutual Authentication (no fault injection)\n");
-        printf("  2. Fault injection (CW: 2 bits, CW echo: 1 bit, RW: 1 bit)\n");
-        printf("  3. Fault injection — Error Management stress (CW: 3 bits, CW echo: 2 bits)\n");
-        printf("  --- FW Verification ---\n");
-        printf("  4. FW Verification — correct RW  (expect FW_OK, saves RW_verify)\n");
-        printf("  5. FW Verification — wrong RW    (expect FW_NOK)\n");
-        printf("  --- Installation ---\n");
-        printf("  6. Installation    — request install auth (run option 4 first)\n");
-        printf("  --- \n");
-        printf("  7. Exit\n");
-        printf("=====================================================\n");
-        printf("  Option: ");
+        print_menu();
         scanf("%d", &option);
         printf("\n");
 
@@ -698,7 +729,7 @@ int main(int argc, char **argv)
         {
             /* Options 2/3 — main-branch single-phase wording */
             if (status == SGR_SDK_OK)
-                printf("\n  ✔ Authentication OK (Phase 1)\n");
+                printf("\n  ✔ Authentication OK (token auth)\n");
             else if (status == SGR_SDK_AUTH_FAILED)
                 printf("\n  ✖ Authentication FAILED\n");
             else if (status == SGR_SDK_CLAIM_TOKEN_READY)
@@ -709,11 +740,11 @@ int main(int argc, char **argv)
         else
         {
             if (status == SGR_SDK_OK)
-                printf("\n  ✔ Mutual Authentication OK (Phase 1 + Phase 2)\n");
+                printf("\n  ✔ Mutual Authentication OK (token + host auth)\n");
             else if (status == SGR_SDK_AUTH_FAILED)
-                printf("\n  ✖ Authentication FAILED — Phase 1 (cloud rejected device)\n");
+                printf("\n  ✖ Authentication FAILED — token auth (cloud rejected device)\n");
             else if (status == SGR_SDK_MUTUAL_AUTH_FAILED)
-                printf("\n  ✖ Mutual Authentication FAILED — Phase 2 (HRW mismatch, cloud not verified)\n");
+                printf("\n  ✖ Mutual Authentication FAILED — host auth (HRW mismatch, cloud not verified)\n");
             else if (status == SGR_SDK_CLAIM_TOKEN_READY)
                 printf("\n  ⚠ Token Ready to be Claimed: %s\n", g_sgr_last_claim_token_id);
             else

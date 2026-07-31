@@ -36,6 +36,11 @@ typedef struct {
     /* Populated when SERVER_ReceiveAuthResult returns SERVER_CLAIM_TOKEN
      * (device side: parsed from GW's type-4 frame).                      */
     char            claim_token_id[SERVER_CLAIM_TOKEN_ID_LEN];
+    /* Host-auth response word (HRW2) from the mutual-auth verdict frame. The
+     * device compares this against its own local host-auth (opcode 0x05000800)
+     * — Phase 2 folds into the verdict, no separate requestRW round-trip.  */
+    uint8_t         hrw2[16];
+    bool            have_hrw2;
 } server_ctx_t;
 
 /* -----------------------------------------------------------------------------

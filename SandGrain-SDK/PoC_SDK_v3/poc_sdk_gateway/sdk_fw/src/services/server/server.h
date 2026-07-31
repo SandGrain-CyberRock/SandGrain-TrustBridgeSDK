@@ -37,6 +37,11 @@ typedef struct {
     /* Populated when SERVER_ReplyRW_Receive returns SERVER_CLAIM_TOKEN
      * (gateway side: parsed from CyberRock's replyRW MQTT response).     */
     char            claim_token_id[SERVER_CLAIM_TOKEN_ID_LEN];
+    /* Host-auth response word (hex) parsed from the mutual-auth checkstatus in
+     * SERVER_ReplyRW_Receive. Relayed to the device in the verdict frame so the
+     * device verifies host-auth locally — no separate requestRW round-trip.
+     * Empty when the response carried no HRW2 (e.g. error-management path).   */
+    char            hrw2_hex[33];
 } server_ctx_t;
 
 /* -----------------------------------------------------------------------------

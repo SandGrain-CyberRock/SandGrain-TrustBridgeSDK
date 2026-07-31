@@ -13,11 +13,14 @@
 //#include "sdk_sgr_config.h"
 #include "config_poc.h"
 #include "port_comm_device.h"
+#include "gw_presence.h"   /* device presence + BE trigger proxy (device MQTT-free) */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -42,6 +45,51 @@
 #else
     #define LOG_DEV(fmt, ...)  do {} while(0)
 #endif
+
+/* ── Channel registry + send lock ────────────────────────────────────────────
+ * Devices are now MQTT-free: they send "HELLO <tid> [TRIGGER]" over the
+ * persistent link, and the gateway proxies their presence and relays
+ * cmd/run_auth back as "RUN_AUTH <mode>" (see gw_presence.c). The registry lets
+ * the trigger forwarder find a device's socket by its channel id; the lock
+ * serializes the forwarder's write (on gw_presence's mqtt thread) against the
+ * FSM's writes (on the main loop). Reads (recv) are the opposite direction and
+ * need no lock. */
+#define GW_CH_MAX (MAX_DEVICES + 4)
+static port_comm_device_t *g_channels[GW_CH_MAX];
+static int                 g_channel_count = 0;
+static pthread_mutex_t     g_send_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Parse a "HELLO <tid>[ TRIGGER]" control line from a device: learn its TID,
+ * bind it to this channel, and bring it ONLINE via the presence proxy (only in
+ * TrustBridge mode — BE_URL set; standalone has no BE to answer). */
+static void prv_handle_hello(port_comm_device_t *ctx, const uint8_t *data, int len)
+{
+    char buf[128];
+    int  n = (len < (int)sizeof(buf) - 1) ? len : (int)sizeof(buf) - 1;
+    memcpy(buf, data, (size_t)n);
+    buf[n] = '\0';
+    char *nl = strchr(buf, '\n');
+    if (nl) *nl = '\0';
+
+    const char *p = buf + 6;                 /* skip "HELLO " */
+    while (*p == ' ') p++;
+
+    char tid[65] = {0};
+    int  i = 0;
+    while (i < 64 && isxdigit((unsigned char)p[i])) { tid[i] = p[i]; i++; }
+    tid[i] = '\0';
+    if (i != 64) {
+        LOG_DEV("malformed HELLO on %s", ctx->id);
+        return;
+    }
+    int wants_trigger = (strstr(p + i, "TRIGGER") != NULL);
+
+    snprintf(ctx->tid, sizeof(ctx->tid), "%s", tid);
+    printf("[HELLO] %.8s... on %s%s\n", tid, ctx->id, wants_trigger ? " (TRIGGER)" : "");
+
+    if (getenv("BE_URL"))
+        gw_presence_online(ctx->id, tid, wants_trigger ? true : false);
+}
 
 /* -----------------------------------------------------------------------------
  * prv_parse_channel
@@ -78,6 +126,20 @@ bool port_comm_device_init(port_comm_device_t *ctx, const char *device_id)
     ctx->listen_fd = SOCK_INVALID;
     ctx->conn_fd   = SOCK_INVALID;
     ctx->is_server = false;
+
+    /* Record the channel id and register this context so the trigger forwarder
+     * can find its socket by id later. */
+    snprintf(ctx->id, sizeof(ctx->id), "%s", device_id);
+    ctx->tid[0] = '\0';
+    pthread_mutex_lock(&g_send_lock);
+    {
+        int already = 0;
+        for (int k = 0; k < g_channel_count; k++)
+            if (g_channels[k] == ctx) { already = 1; break; }
+        if (!already && g_channel_count < GW_CH_MAX)
+            g_channels[g_channel_count++] = ctx;
+    }
+    pthread_mutex_unlock(&g_send_lock);
 
 #ifdef _WIN32
     WSADATA wsa;
@@ -162,7 +224,11 @@ bool port_comm_device_send(port_comm_device_t *ctx, const uint8_t *buffer_tx, ui
     if (ctx == NULL || ctx->conn_fd == SOCK_INVALID || buffer_tx == NULL)
         return false;
 
+    /* Serialize with the trigger forwarder (RUN_AUTH) writing from the presence
+     * thread on the same socket. */
+    pthread_mutex_lock(&g_send_lock);
     int sent = send(ctx->conn_fd, (const char *)buffer_tx, buffer_tx_size, 0);
+    pthread_mutex_unlock(&g_send_lock);
 
 #ifdef _WIN32
     Sleep(100);
@@ -214,6 +280,12 @@ bool port_comm_device_receive(port_comm_device_t *ctx, uint8_t *buffer_rx, uint1
     if (rec == 0)
     {
         LOG_DEV("Device disconnected — waiting for new connection...");
+        /* Publish the device offline (gateway-derived presence) before we drop
+         * the socket, so TrustBridge sees it go away. */
+        if (ctx->tid[0] && getenv("BE_URL"))
+            gw_presence_lost(ctx->id);
+        ctx->tid[0] = '\0';
+
         SOCK_CLOSE(ctx->conn_fd);
         ctx->conn_fd = SOCK_INVALID;
 
@@ -224,6 +296,17 @@ bool port_comm_device_receive(port_comm_device_t *ctx, uint8_t *buffer_rx, uint1
     }
     else if (rec < 0)
     {
+        if (buffer_rx_received_size)
+            *buffer_rx_received_size = 0;
+        return true;
+    }
+
+    /* Intercept device control lines (HELLO) — they carry presence/trigger info,
+     * not auth frames, so consume them and surface NO_DATA to the FSM. Auth
+     * frames are JSON ("{...}") and fall through untouched. */
+    if (rec > 6 && memcmp(buffer_rx, "HELLO ", 6) == 0)
+    {
+        prv_handle_hello(ctx, buffer_rx, rec);
         if (buffer_rx_received_size)
             *buffer_rx_received_size = 0;
         return true;
@@ -285,14 +368,45 @@ bool port_comm_device_is_ready(port_comm_device_t *ctx)
 
 void port_comm_device_close(port_comm_device_t *ctx)
 {
-    if (ctx == NULL)
+    (void)ctx;
+    /* Persistent device link: keep conn_fd open across auth flows AND across the
+     * phase-1 -> phase-2 boundary. The device no longer reconnects per phase (it
+     * holds the link open too), so closing here would break Phase 2 — the device
+     * would send its host-auth frame down a half-closed socket (SIGPIPE) and the
+     * gateway would never see it. The connection is dropped only on a real device
+     * disconnect (recv()==0 in port_comm_device_receive, which also publishes the
+     * device offline). listen_fd likewise stays open for the next device. */
+}
+
+/* =============================================================================
+ * port_comm_device_forward_run_auth  — relay a run_auth trigger to a device
+ *
+ * Registered with gw_presence (gw_presence_set_trigger_handler). Called on the
+ * presence proxy's mqtt thread when TrustBridge publishes cmd/run_auth for a
+ * proxied device; writes "RUN_AUTH <mode>" down that device's channel. The
+ * send lock serializes this against the FSM's writes on the main loop.
+ * ============================================================================= */
+void port_comm_device_forward_run_auth(const char *id, int mode)
+{
+    if (id == NULL)
         return;
 
-    if (ctx->conn_fd != SOCK_INVALID && ctx->conn_fd != ctx->listen_fd)
-    {
-        SOCK_CLOSE(ctx->conn_fd);
-        ctx->conn_fd = SOCK_INVALID;
-    }
+    char line[32];
+    int  n = snprintf(line, sizeof(line), "RUN_AUTH %d\n", mode);
 
-    /* listen_fd stays open — server keeps listening for next device */
+    pthread_mutex_lock(&g_send_lock);
+    port_comm_device_t *ch = NULL;
+    for (int i = 0; i < g_channel_count; i++)
+        if (g_channels[i] && strcmp(g_channels[i]->id, id) == 0) { ch = g_channels[i]; break; }
+
+    if (ch && ch->conn_fd != SOCK_INVALID)
+    {
+        send(ch->conn_fd, line, n, 0);
+        printf("[TRIGGER] RUN_AUTH %d -> %s (%.8s...)\n", mode, id, ch->tid);
+    }
+    else
+    {
+        printf("[TRIGGER] RUN_AUTH %d dropped — %s has no live connection\n", mode, id);
+    }
+    pthread_mutex_unlock(&g_send_lock);
 }

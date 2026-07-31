@@ -587,7 +587,7 @@ device_status_t DEVICE_SendHRW(device_service_ctx_t *ctx, const uint8_t *hrw)
  * DEVICE_SendAuthResult
  * Sends type "4" to device with auth result
  * ============================================================================= */
-device_status_t DEVICE_SendAuthResult(device_service_ctx_t *ctx, bool auth_ok)
+device_status_t DEVICE_SendAuthResult(device_service_ctx_t *ctx, bool auth_ok, const char *hrw2_hex)
 {
     device_status_t status = DEVICE_ERROR;
     uint8_t         tx_buf[DEVICE_TX_BUF_SIZE];
@@ -599,9 +599,16 @@ device_status_t DEVICE_SendAuthResult(device_service_ctx_t *ctx, bool auth_ok)
     }
     else
     {
-        len = snprintf((char *)tx_buf, sizeof(tx_buf),
-                       "{\"type\":\"4\",\"payload\":{\"auth_status\":\"%s\"}}",
-                       auth_ok ? "AUT_OK" : "AUT_NOK");
+        /* Include HRW2 (host-auth response word) when present so the device
+         * verifies host-auth locally against it (mutual-auth Phase 2 folded in). */
+        if (hrw2_hex != NULL && hrw2_hex[0] != '\0')
+            len = snprintf((char *)tx_buf, sizeof(tx_buf),
+                           "{\"type\":\"4\",\"payload\":{\"auth_status\":\"%s\",\"HRW2\":\"%s\"}}",
+                           auth_ok ? "AUT_OK" : "AUT_NOK", hrw2_hex);
+        else
+            len = snprintf((char *)tx_buf, sizeof(tx_buf),
+                           "{\"type\":\"4\",\"payload\":{\"auth_status\":\"%s\"}}",
+                           auth_ok ? "AUT_OK" : "AUT_NOK");
 
         if (len <= 0)
         {
@@ -625,7 +632,7 @@ device_status_t DEVICE_SendAuthResult(device_service_ctx_t *ctx, bool auth_ok)
  * Sends type "4" to device with auth_status=CLAIM_TOKEN and the claim_token_id
  * (UUID) so the device can display / act on it.
  * ============================================================================= */
-device_status_t DEVICE_SendAuthClaimToken(device_service_ctx_t *ctx, const char *claim_token_id)
+device_status_t DEVICE_SendAuthClaimToken(device_service_ctx_t *ctx, const char *claim_token_id, const char *hrw2_hex)
 {
     device_status_t status = DEVICE_ERROR;
     uint8_t         tx_buf[DEVICE_TX_BUF_SIZE];
@@ -637,9 +644,16 @@ device_status_t DEVICE_SendAuthClaimToken(device_service_ctx_t *ctx, const char 
     }
     else
     {
-        len = snprintf((char *)tx_buf, sizeof(tx_buf),
-                       "{\"type\":\"4\",\"payload\":{\"auth_status\":\"CLAIM_TOKEN\",\"claim_token_id\":\"%s\"}}",
-                       claim_token_id);
+        /* CLAIM_TOKEN is also a mutual-auth success case (device recognised but
+         * not yet claimed), so carry HRW2 too when present for the local check. */
+        if (hrw2_hex != NULL && hrw2_hex[0] != '\0')
+            len = snprintf((char *)tx_buf, sizeof(tx_buf),
+                           "{\"type\":\"4\",\"payload\":{\"auth_status\":\"CLAIM_TOKEN\",\"claim_token_id\":\"%s\",\"HRW2\":\"%s\"}}",
+                           claim_token_id, hrw2_hex);
+        else
+            len = snprintf((char *)tx_buf, sizeof(tx_buf),
+                           "{\"type\":\"4\",\"payload\":{\"auth_status\":\"CLAIM_TOKEN\",\"claim_token_id\":\"%s\"}}",
+                           claim_token_id);
 
         if (len <= 0)
             status = DEVICE_ERROR;

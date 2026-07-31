@@ -307,7 +307,7 @@ read_tenant() {  # read_tenant KEY DEFAULT  -> current tenant.<KEY> from the JSO
 say "Configuration  (press Enter to keep the [current] value)"
 
 # --- CyberRock / device scope / Cloudflare Access  (-> .env) ---
-cur_cr="$(read_env CYBERROCK_BASE_URL https://device-api.sandbox.sandgrain.io)"
+cur_cr="$(read_env CYBERROCK_BASE_URL https://device-api-uat.sandgrain.dev)"
 read -rp "  CyberRock base URL      [${cur_cr}]: " in_cr || true; CYBERROCK_BASE_URL="${in_cr:-$cur_cr}"
 
 cur_did="$(read_env DEVICE_ID gw-001)"

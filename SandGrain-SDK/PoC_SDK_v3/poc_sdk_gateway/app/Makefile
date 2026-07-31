@@ -22,8 +22,9 @@ LDFLAGS  += -fno-lto
 
 ifeq ($(PLATFORM),WINDOWS)
 CFLAGS  += -Wall -Wextra -std=c11 -DWIN32 -DSDK_MODE=1 -DMAX_DEVICES=3
+# -lpthread for gw_presence / port_comm_device per-device proxy + send lock.
 LDFLAGS := \
-        -lmosquitto \
+        -lmosquitto -lpthread \
         -lws2_32 -lbcrypt -lkernel32
 else ifeq ($(PLATFORM),MACOS)
 # macOS: libmosquitto comes from Homebrew; add its include/lib paths.
@@ -31,6 +32,7 @@ BREW_PREFIX := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
 CFLAGS  += -Wall -Wextra -std=c11 -D_GNU_SOURCE -DLINUX -DSDK_MODE=1 -DMAX_DEVICES=3 \
            -I$(BREW_PREFIX)/include \
            -I$(BREW_PREFIX)/opt/mosquitto/include
+# pthread is in libSystem on macOS — no explicit -lpthread needed.
 LDFLAGS := \
         -L$(BREW_PREFIX)/lib \
         -L$(BREW_PREFIX)/opt/mosquitto/lib \
@@ -39,9 +41,10 @@ else
 # _GNU_SOURCE exposes POSIX/BSD APIs (usleep, etc.) under -std=c11
 # Required on glibc >= 2.38 (Raspberry Pi OS Trixie 13, Debian 13).
 # port_spi_usb.c uses native termios on Linux, no external serial lib needed.
+# -lpthread for gw_presence / port_comm_device per-device proxy + send lock.
 CFLAGS  += -Wall -Wextra -std=c11 -D_GNU_SOURCE -DLINUX -DSDK_MODE=1 -DMAX_DEVICES=3
 LDFLAGS := \
-        -lmosquitto
+        -lmosquitto -lpthread
 endif
 
 TARGET := test_gw
@@ -90,7 +93,9 @@ POC_SRCS := \
     port/port_delay.c \
     port/port_spi_usb.c \
     port/port_random.c \
-    port/gw_log.c
+    port/gw_log.c \
+    port/gw_whitelist.c \
+    port/gw_presence.c
 
 # ================== BUILD ==================
 INCLUDES := $(addprefix -I,$(INC_DIRS))

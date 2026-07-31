@@ -627,6 +627,26 @@ server_status_t SERVER_ReceiveAuthResult(server_ctx_t *ctx, bool *auth_ok_out)
     {
         ctx->rx_buf[ctx->rx_len] = '\0';
 
+        /* Parse HRW2 (host-auth response word) if the mutual-auth verdict carried
+         * it, so the device can verify host-auth locally against it. 32 hex → 16
+         * bytes. Reset per frame; consumers check have_hrw2. */
+        ctx->have_hrw2 = false;
+        {
+            const char *h = strstr((char *)ctx->rx_buf, "\"HRW2\":\"");
+            if (h != NULL)
+            {
+                h += strlen("\"HRW2\":\"");
+                bool ok = true;
+                for (int i = 0; i < 16; i++)
+                {
+                    unsigned int b;
+                    if (sscanf(h + i * 2, "%2x", &b) != 1) { ok = false; break; }
+                    ctx->hrw2[i] = (uint8_t)b;
+                }
+                ctx->have_hrw2 = ok;
+            }
+        }
+
         if (strstr((char *)ctx->rx_buf, "\"type\":\"4\"") == NULL)
             status = SERVER_PARSE_ERROR;
         else if (strstr((char *)ctx->rx_buf, "\"CLAIM_TOKEN\"") != NULL)

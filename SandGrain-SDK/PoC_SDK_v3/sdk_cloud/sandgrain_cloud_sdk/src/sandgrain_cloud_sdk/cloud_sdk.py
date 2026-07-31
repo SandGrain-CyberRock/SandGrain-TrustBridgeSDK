@@ -176,6 +176,53 @@ class CloudSDK:
             device_access_token=token,
         )
 
+    # ---------- Mutual auth (single checkstatus returns HRW2) ----------
+    async def request_mutual_auth_cw(self, *, tid: str, device_key: str = "default") -> RequestCWResponse:
+        log.info("SDK request_mutual_auth_cw tid=%s device_key=%s", tid, device_key)
+        token = await self.ensure_device_token(tid, device_key=device_key)
+        return await self.client.request_mutual_auth_cw(
+            tid=tid,
+            device_key=device_key,
+            device_access_token=token,
+        )
+
+    async def reply_mutual_auth_rw(
+        self,
+        *,
+        tid: str,
+        cw: str,
+        rw: str,
+        transaction_id: str,
+        action_id: str = "replyRW",
+        device_key: str = "default",
+    ) -> ReplyRWResponse:
+        _ = action_id
+        log.info("SDK reply_mutual_auth_rw tid=%s tx=%s device_key=%s", tid, transaction_id, device_key)
+        token = await self.ensure_device_token(tid, device_key=device_key)
+        return await self.client.reply_mutual_auth_rw(
+            tid=tid,
+            cw=cw,
+            rw=rw,
+            transaction_id=transaction_id,
+            device_key=device_key,
+            device_access_token=token,
+        )
+
+    async def check_mutual_auth_status(
+        self,
+        *,
+        transaction_id: str,
+        tid: str,
+        device_key: str = "default",
+    ) -> CheckAuthStatusResponse:
+        log.info("SDK check_mutual_auth_status tid=%s tx=%s device_key=%s", tid, transaction_id, device_key)
+        token = await self.ensure_device_token(tid, device_key=device_key)
+        return await self.client.check_mutual_auth_status(
+            transaction_id,
+            device_key=device_key,
+            device_access_token=token,
+        )
+
 
     async def request_transaction_id(
         self,

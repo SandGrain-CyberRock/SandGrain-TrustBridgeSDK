@@ -80,14 +80,17 @@ device_status_t DEVICE_ReceiveRW(device_service_ctx_t *ctx, uint8_t *cw_out, uin
 /**
  * Send type "4" to device — sends auth result.
  */
-device_status_t DEVICE_SendAuthResult(device_service_ctx_t *ctx, bool auth_ok);
+/* Sends the type-4 verdict to the device. hrw2_hex (NULL/empty to omit) is the
+ * host-auth response word from the mutual-auth checkstatus, which the device
+ * compares against its own local host-auth — no separate Phase-2 exchange. */
+device_status_t DEVICE_SendAuthResult(device_service_ctx_t *ctx, bool auth_ok, const char *hrw2_hex);
 
 /**
  * Send type "4" to device — CLAIM_TOKEN variant.
  * Tells the device the cloud returned CLAIM_TOKEN and forwards the claim_token_id
  * so the device can display / act on it.
  */
-device_status_t DEVICE_SendAuthClaimToken(device_service_ctx_t *ctx, const char *claim_token_id);
+device_status_t DEVICE_SendAuthClaimToken(device_service_ctx_t *ctx, const char *claim_token_id, const char *hrw2_hex);
 
 /**
  * Receive type "6" from device — extracts CRC32, FW verification result and computed RW.

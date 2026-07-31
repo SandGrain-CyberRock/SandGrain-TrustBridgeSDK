@@ -353,6 +353,118 @@ class CyberRockClient:
             claim_token_id=str(claim_token_id) if claim_token_id else None,
         )
 
+    # ---------- Mutual auth (single checkstatus returns HRW2) ----------
+    # New CyberRock flow: requestMutualAuthCW -> replyMutualAuthRW ->
+    # checkMutualAuthStatus, where checkMutualAuthStatus returns the host-auth
+    # HRW2 alongside the token-auth verdict — so Phase 2 (host-auth) folds into
+    # the same transaction instead of a separate requestRW round-trip.
+    async def request_mutual_auth_cw(
+        self,
+        *,
+        tid: Optional[str] = None,
+        pcc: Optional[str] = None,
+        device_id: Optional[str] = None,
+        device_key: str = "default",
+        request_signed_response: bool = False,
+        device_access_token: Optional[str] = None,
+    ) -> RequestCWResponse:
+        if not tid:
+            if not pcc or not device_id:
+                raise MissingTokenError("tid (or pcc+device_id)")
+            tid = f"{pcc}{device_id}"
+
+        bearer = self._get_device_bearer(device_key=device_key, device_access_token=device_access_token)
+        log.info("request_mutual_auth_cw tid=%s device_key=%s", tid, device_key)
+
+        body = await self._request(
+            "POST",
+            "/api/device/requestMutualAuthCW",
+            cf_access=True,
+            bearer_token=bearer,
+            json_body={"requestSignedResponse": bool(request_signed_response), "TID": tid},
+        )
+        cw = body.get("CW")
+        tx = body.get("transactionId")
+        if not cw or not tx:
+            raise CyberRockError(500, "Missing CW/transactionId in requestMutualAuthCW response", body)
+
+        log.info("request_mutual_auth_cw OK transaction_id=%s", tx)
+        return RequestCWResponse(cw=str(cw), transaction_id=str(tx))
+
+    async def reply_mutual_auth_rw(
+        self,
+        *,
+        tid: str,
+        cw: str,
+        rw: str,
+        transaction_id: str,
+        request_signed_response: bool = False,
+        device_key: str = "default",
+        device_access_token: Optional[str] = None,
+    ) -> ReplyRWResponse:
+        bearer = self._get_device_bearer(device_key=device_key, device_access_token=device_access_token)
+        log.info("reply_mutual_auth_rw tid=%s transaction_id=%s", tid, transaction_id)
+
+        body = await self._request(
+            "POST",
+            "/api/device/replyMutualAuthRW",
+            cf_access=True,
+            bearer_token=bearer,
+            json_body={
+                "requestSignedResponse": bool(request_signed_response),
+                "TID": tid,
+                "CW": cw,
+                "RW": rw,
+                "transactionId": transaction_id,
+            },
+        )
+        tx = body.get("transactionId") or body.get("transactionID")
+        if not tx:
+            raise CyberRockError(500, "Missing transactionId in replyMutualAuthRW response", body)
+
+        log.info("reply_mutual_auth_rw accepted transaction_id=%s", tx)
+        return ReplyRWResponse(transaction_id=str(tx))
+
+    async def check_mutual_auth_status(
+        self,
+        transaction_id: str,
+        *,
+        device_key: str = "default",
+        device_access_token: Optional[str] = None,
+    ) -> CheckAuthStatusResponse:
+        bearer = self._get_device_bearer(device_key=device_key, device_access_token=device_access_token)
+        log.info("check_mutual_auth_status transaction_id=%s", transaction_id)
+
+        body = await self._request(
+            "GET",
+            "/api/device/checkMutualAuthStatus",
+            cf_access=True,
+            bearer_token=bearer,
+            query={"transactionId": transaction_id},
+            extra_headers={"transactionId": transaction_id},
+        )
+
+        raw_status = body.get("status")
+        status: Optional[str] = None
+        if isinstance(raw_status, str):
+            status = raw_status
+        elif isinstance(raw_status, dict) and raw_status:
+            status = next(iter(raw_status.keys()))
+
+        if not status:
+            raise CyberRockError(500, "Missing status in checkMutualAuthStatus response", body)
+
+        hrw2 = body.get("HRW2") or body.get("hrw2")
+        claim_token_id = body.get("claimTokenId") or body.get("claimId")
+        log.info("check_mutual_auth_status status=%s has_hrw2=%s claim_token_id=%s",
+                 status, bool(hrw2), claim_token_id)
+
+        return CheckAuthStatusResponse(
+            status=str(status),
+            claim_token_id=str(claim_token_id) if claim_token_id else None,
+            hrw2=str(hrw2) if hrw2 else None,
+        )
+
     # ---------- Mutual auth (Host/Cloud RW) : HCW/HRW endpoints ----------
     async def request_transaction_id(
         self,
@@ -392,7 +504,7 @@ class CyberRockClient:
         *,
         tid: str,
         hcw: str,
-        transaction_id: str,
+        transaction_id: Optional[str] = None,
         device_key: str = "default",
         request_signed_response: bool = False,
         device_access_token: Optional[str] = None,
@@ -401,17 +513,23 @@ class CyberRockClient:
 
         log.info("request_hrw tid=%s transaction_id=%s", tid, transaction_id)
 
+        # UAT's requestHRW takes {TID, HCW} and RETURNS the transactionId itself;
+        # there is no separate requestTransactionId pre-step (that endpoint 404s
+        # on UAT). transactionId is only sent back on a follow-up poll if given.
+        json_body = {
+            "requestSignedResponse": bool(request_signed_response),
+            "TID": tid,
+            "HCW": hcw,
+        }
+        if transaction_id:
+            json_body["transactionId"] = transaction_id
+
         body = await self._request(
             "POST",
             "/api/device/requestHRW",
             cf_access=True,
             bearer_token=bearer,
-            json_body={
-                "requestSignedResponse": bool(request_signed_response),
-                "TID": tid,
-                "HCW": hcw,
-                "transactionId": transaction_id,
-            },
+            json_body=json_body,
         )
 
         tx = body.get("transactionId") or body.get("transactionID")
@@ -479,19 +597,15 @@ class CyberRockClient:
         bearer = self._get_device_bearer(device_key=device_key, device_access_token=device_access_token)
         _ = bearer  # keep local, used in downstream calls
 
-        log.info("request_rw (maps to HRW flow) tid=%s (transaction_id ignored=%s)", tid, bool(transaction_id))
+        log.info("request_rw (maps to HRW flow) tid=%s", tid)
 
-        tx_res = await self.request_transaction_id(
-            tid=tid,
-            hcw=cw,
-            device_key=device_key,
-            device_access_token=bearer,
-        )
-
+        # requestHRW takes {TID, HCW=CW} and returns the transactionId directly.
+        # The legacy requestTransactionId pre-step 404s on UAT, so it is skipped —
+        # matches the reference BitErrorHandling flow (requestHRW -> checkRequestHRWStatus).
         hrw_req = await self.request_hrw(
             tid=tid,
-            hcw=tx_res.hcw,
-            transaction_id=tx_res.transaction_id,
+            hcw=cw,
+            transaction_id=None,
             device_key=device_key,
             device_access_token=bearer,
         )

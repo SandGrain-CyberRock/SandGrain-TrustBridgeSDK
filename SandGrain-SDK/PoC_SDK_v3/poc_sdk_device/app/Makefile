@@ -22,27 +22,22 @@ LDFLAGS  += -fno-lto
 
 ifeq ($(PLATFORM),WINDOWS)
 CFLAGS  += -Wall -Wextra -std=c11 -DWIN32 -DSDK_MODE=0
+# MQTT-free device: no libmosquitto. Threads via kernel32 (CreateThread).
 LDFLAGS := \
-        -lmosquitto \
         -lws2_32 -lbcrypt -lkernel32
 else ifeq ($(PLATFORM),MACOS)
-# macOS: libmosquitto comes from Homebrew; add its include/lib paths.
-BREW_PREFIX := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)
-CFLAGS  += -Wall -Wextra -std=c11 -D_GNU_SOURCE -DLINUX -DSDK_MODE=0 \
-           -I$(BREW_PREFIX)/include \
-           -I$(BREW_PREFIX)/opt/mosquitto/include
-LDFLAGS := \
-        -L$(BREW_PREFIX)/lib \
-        -L$(BREW_PREFIX)/opt/mosquitto/lib \
-        -lmosquitto
+# MQTT-free device: the gateway proxies presence + relays triggers over the
+# persistent TCP link, so no libmosquitto is needed here. pthread is in libSystem.
+CFLAGS  += -Wall -Wextra -std=c11 -D_GNU_SOURCE -DLINUX -DSDK_MODE=0
+LDFLAGS :=
 else
 # _GNU_SOURCE exposes POSIX/BSD APIs (usleep, etc.) under -std=c11
 # Required on glibc >= 2.38 (Raspberry Pi OS Trixie 13, Debian 13).
 CFLAGS  += -Wall -Wextra -std=c11 -D_GNU_SOURCE -DLINUX -DSDK_MODE=0
-# port_spi_usb.c uses native termios on Linux — no rs232lib link needed.
-# -lpthread for the SDK-call mutex (CRITICAL_SECTION used on Windows instead).
+# MQTT-free device: no libmosquitto. -lpthread for the SDK-call mutex + the
+# trigger-listener thread (CRITICAL_SECTION/CreateThread used on Windows instead).
 LDFLAGS := \
-        -lmosquitto -lpthread
+        -lpthread
 endif
 
 TARGET := test_device

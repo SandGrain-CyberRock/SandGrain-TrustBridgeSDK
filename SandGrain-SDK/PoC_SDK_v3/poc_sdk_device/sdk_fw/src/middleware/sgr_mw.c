@@ -1680,13 +1680,24 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
                  * single-phase flow — finish here without entering Phase 2. */
                 if (FI_SKIP_PHASE2_ACTIVE)
                 {
-                    MW_LOG("[4/4] GW confirmed device — AUT_OK ✔  (Phase 1 only — Phase 2 skipped by test harness)");
+                    MW_LOG("[4/4] GW confirmed device — AUT_OK ✔  (token auth only — host-auth skipped by test harness)");
                     vgw_ctx.pending_result = SGR_MW_OK;
+                    vgw_ctx.step           = VGW_STEP_CLOSE;
+                }
+                else if (!vgw_srv_ctx.have_hrw2)
+                {
+                    /* Mutual-auth verdict must carry HRW2 (cloud host-auth
+                     * response); without it host-auth can't be verified. */
+                    MW_LOG("[4/4] AUT_OK but verdict carried no HRW2 — host-auth not verifiable ✖");
+                    vgw_ctx.pending_result = SGR_MW_MUTUAL_AUTH_FAILED;
                     vgw_ctx.step           = VGW_STEP_CLOSE;
                 }
                 else
                 {
-                    MW_LOG("[4/4] GW confirmed device — AUT_OK ✔  (Phase 1 done, starting Phase 2)");
+                    MW_LOG("[4/4] GW confirmed device — AUT_OK ✔  (token auth done — verifying host-auth locally)");
+                    /* HRW2 came back inside the verdict — no separate Phase-2
+                     * requestRW; just compute local HRW and compare. */
+                    memcpy(vgw_ctx.hrw_cloud, vgw_srv_ctx.hrw2, 16);
                     vgw_ctx.step = VGW_STEP_PHASE2_COMPUTE_HRW_TOKEN;
                 }
                 status = SGR_MW_BUSY;
@@ -1699,7 +1710,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             memcpy(vgw_ctx.hcw,      vgw_ctx.rw, 16);
             memcpy(vgw_ctx.hcw + 16, vgw_ctx.rw, 16);
 
-            MW_LOG("[Phase 2 — 1/4] Computing local HRW on crypto chip (host-auth, opcode 0x05000800; HCW = RW || RW)...");
+            MW_LOG("[Host auth — 1/2] Computing local HRW on crypto chip (opcode 0x05000800; HCW = RW || RW)...");
             if (crypto_get_rw(vgw_ctx.hcw,       sizeof(vgw_ctx.hcw),
                               vgw_ctx.hrw_token, sizeof(vgw_ctx.hrw_token),
                               NULL, 0,
@@ -1711,10 +1722,12 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                MW_LOG("[Phase 2 — 1/4] HRW_token: ");
+                MW_LOG("[Host auth — 1/2] HRW_token: ");
                 for (int i = 0; i < 16; i++) printf("%02x", vgw_ctx.hrw_token[i]);
                 printf("\n");
-                vgw_ctx.step = VGW_STEP_PHASE2_SEND_HCW;
+                /* HRW_cloud (HRW2) already arrived in the verdict — compare
+                 * locally. No reopen / type-8 / receive (that path is legacy). */
+                vgw_ctx.step = VGW_STEP_PHASE2_COMPARE;
             }
             status = SGR_MW_BUSY;
             break;
@@ -1723,19 +1736,19 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             /* GW closes the device-facing socket at the end of its auth flow.
              * Reopen so the GW dispatcher routes our type-8 frame to the
              * HOST_AUTH flow. */
-            MW_LOG("[Phase 2 — 2/4] Reopening connection to GW for host-auth phase...");
+            MW_LOG("[Host auth · legacy/unused] Reopening connection to GW for host-auth phase...");
             SERVER_Close(&vgw_srv_ctx);
             srv_status = SERVER_Open(&vgw_srv_ctx, mw_tid);
             if (srv_status != SERVER_OK)
             {
-                MW_LOG("[ERROR] Failed to reopen GW connection for Phase 2");
+                MW_LOG("[ERROR] Failed to reopen GW connection for host-auth");
                 vgw_ctx.pending_result = SGR_MW_COMM_ERROR;
                 vgw_ctx.step           = VGW_STEP_CLOSE;
                 status                 = SGR_MW_BUSY;
                 break;
             }
 
-            MW_LOG("[Phase 2 — 2/4] Sending HCW to GW (type 8)...");
+            MW_LOG("[Host auth · legacy/unused] Sending HCW to GW (type 8)...");
             srv_status = SERVER_SendHostAuthRequest(&vgw_srv_ctx, mw_tid, vgw_ctx.hcw);
             if (srv_status != SERVER_OK)
             {
@@ -1758,7 +1771,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else if (srv_status == SERVER_AUTH_FAILED)
             {
-                MW_LOG("[Phase 2 — 3/4] GW reported HOST_AUTH_NOK — cloud could not produce HRW ✖");
+                MW_LOG("[Host auth · legacy/unused] GW reported HOST_AUTH_NOK — cloud could not produce HRW ✖");
                 vgw_ctx.pending_result = SGR_MW_MUTUAL_AUTH_FAILED;
                 vgw_ctx.step           = VGW_STEP_CLOSE;
                 status                 = SGR_MW_BUSY;
@@ -1772,7 +1785,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                MW_LOG("[Phase 2 — 3/4] HRW_cloud received: ");
+                MW_LOG("[Host auth · legacy/unused] HRW_cloud received: ");
                 for (int i = 0; i < 16; i++) printf("%02x", vgw_ctx.hrw_cloud[i]);
                 printf("\n");
                 vgw_ctx.step = VGW_STEP_PHASE2_COMPARE;
@@ -1783,12 +1796,12 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
         case VGW_STEP_PHASE2_COMPARE:
             if (memcmp(vgw_ctx.hrw_token, vgw_ctx.hrw_cloud, 16) == 0)
             {
-                MW_LOG("[Phase 2 — 4/4] HRW_token == HRW_cloud — MUTUAL AUTH OK ✔");
+                MW_LOG("[Host auth — 2/2] HRW_local == HRW2 — MUTUAL AUTH OK ✔");
                 vgw_ctx.pending_result = SGR_MW_OK;
             }
             else
             {
-                MW_LOG("[Phase 2 — 4/4] HRW mismatch — cloud identity NOT verified ✖");
+                MW_LOG("[Host auth — 2/2] HRW mismatch — cloud identity NOT verified ✖");
                 vgw_ctx.pending_result = SGR_MW_MUTUAL_AUTH_FAILED;
             }
             vgw_ctx.step = VGW_STEP_CLOSE;

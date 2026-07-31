@@ -33,6 +33,8 @@ typedef struct {
     sock_t  listen_fd;
     sock_t  conn_fd;
     bool    is_server;
+    char    id[32];        /* channel id ("channel_0", ...) — key for the trigger forwarder */
+    char    tid[65];       /* device TID learned from its HELLO (empty until then)          */
 } port_comm_device_t;
 
 /* ===================== API ===================== */
@@ -63,5 +65,14 @@ bool port_comm_device_is_ready(port_comm_device_t *ctx);
  * Close connection.
  */
 void port_comm_device_close(port_comm_device_t *ctx);
+
+/**
+ * Relay a TrustBridge run_auth trigger to a connected device: writes
+ * "RUN_AUTH <mode>" down the channel whose id matches `id`. Registered with
+ * gw_presence as the trigger forwarder (matches gw_presence_trigger_fn). No-op
+ * if no channel with that id has a live connection. Thread-safe against
+ * port_comm_device_send() (both take the channel send lock).
+ */
+void port_comm_device_forward_run_auth(const char *id, int mode);
 
 #endif /* PORT_COMM_DEVICE_H */

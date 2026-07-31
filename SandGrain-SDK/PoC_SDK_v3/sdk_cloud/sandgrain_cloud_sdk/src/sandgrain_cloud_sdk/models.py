@@ -51,6 +51,9 @@ class ReplyRWResponse:
 class CheckAuthStatusResponse:
     status: str
     claim_token_id: Optional[str] = None
+    # Host-auth response word, returned by the mutual-auth checkstatus
+    # (checkMutualAuthStatus) so Phase 2 no longer needs a separate requestRW.
+    hrw2: Optional[str] = None
 
 
 # ---------- Mutual auth (host/cloud RW flow) ----------

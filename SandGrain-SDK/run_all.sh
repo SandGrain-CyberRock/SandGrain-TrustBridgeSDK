@@ -324,29 +324,46 @@ read_tenant() {  # read_tenant KEY DEFAULT  -> current tenant.<KEY> from the JSO
 say "Configuration  (press Enter to keep the [current] value)"
 
 # --- CyberRock / device scope / Cloudflare Access  (-> .env) ---
-cur_cr="$(read_env CYBERROCK_BASE_URL https://device-api.sandbox.sandgrain.io)"
-read -rp "  CyberRock base URL      [${cur_cr}]: " in_cr || true; CYBERROCK_BASE_URL="${in_cr:-$cur_cr}"
+# These configure the LOCAL Python cloud only: the CyberRock base URL, the
+# Cloudflare Access headers it sends on requestRW/checkRequestRWStatus, and the
+# DEVICE_ID topic scope. In --no-cloud the cloud runs in the external TrustBridge
+# stack with its OWN .env, and nothing launched here consumes these — so don't
+# prompt; just carry any previously-saved values forward as next-run defaults.
+if [[ "$RUN_CLOUD" == 1 ]]; then
+  cur_cr="$(read_env CYBERROCK_BASE_URL https://device-api-uat.sandgrain.dev)"
+  read -rp "  CyberRock base URL      [${cur_cr}]: " in_cr || true; CYBERROCK_BASE_URL="${in_cr:-$cur_cr}"
 
-cur_did="$(read_env DEVICE_ID gw-001)"
-read -rp "  Device ID               [${cur_did}]: " in_did || true; DEVICE_ID="${in_did:-$cur_did}"
+  cur_did="$(read_env DEVICE_ID gw-001)"
+  read -rp "  Device ID               [${cur_did}]: " in_did || true; DEVICE_ID="${in_did:-$cur_did}"
 
-cur_cfid="$(read_env CF_ACCESS_CLIENT_ID '')"
-read -rp "  CF Access Client ID     [${cur_cfid:-<empty>}]: " in_cfid || true; CF_ACCESS_CLIENT_ID="${in_cfid:-$cur_cfid}"
+  cur_cfid="$(read_env CF_ACCESS_CLIENT_ID '')"
+  read -rp "  CF Access Client ID     [${cur_cfid:-<empty>}]: " in_cfid || true; CF_ACCESS_CLIENT_ID="${in_cfid:-$cur_cfid}"
 
-cur_cfsec="$(read_env CF_ACCESS_CLIENT_SECRET '')"
-if [[ -n "$cur_cfsec" ]]; then cfsec_hint="keep current"; else cfsec_hint="empty"; fi
-read -rsp "  CF Access Client Secret [${cfsec_hint}]: " in_cfsec || true; echo
-CF_ACCESS_CLIENT_SECRET="${in_cfsec:-$cur_cfsec}"
+  cur_cfsec="$(read_env CF_ACCESS_CLIENT_SECRET '')"
+  if [[ -n "$cur_cfsec" ]]; then cfsec_hint="keep current"; else cfsec_hint="empty"; fi
+  read -rsp "  CF Access Client Secret [${cfsec_hint}]: " in_cfsec || true; echo
+  CF_ACCESS_CLIENT_SECRET="${in_cfsec:-$cur_cfsec}"
+else
+  # --no-cloud: not consumed here; preserve saved values silently so a later
+  # standalone run still finds its defaults in .env.runall.
+  CYBERROCK_BASE_URL="$(read_env CYBERROCK_BASE_URL https://device-api-uat.sandgrain.dev)"
+  DEVICE_ID="$(read_env DEVICE_ID gw-001)"
+  CF_ACCESS_CLIENT_ID="$(read_env CF_ACCESS_CLIENT_ID '')"
+  CF_ACCESS_CLIENT_SECRET="$(read_env CF_ACCESS_CLIENT_SECRET '')"
+fi
 
 # --- Tenant login  (-> device_credentials.json) ---
-if [[ "$HAVE_PY" == 1 ]]; then
+# Standalone only: the local cloud reads the tenant login from
+# device_credentials.json. In --no-cloud the tenant login lives in the
+# TrustBridge BE database, so there is nothing to prompt for or write here.
+if [[ "$RUN_CLOUD" == 1 && "$HAVE_PY" == 1 ]]; then
   cur_temail="$(read_tenant email '')"
   read -rp "  Tenant email            [${cur_temail:-<empty>}]: " in_temail || true; TENANT_EMAIL="${in_temail:-$cur_temail}"
   cur_tpass="$(read_tenant password '')"
   if [[ -n "$cur_tpass" ]]; then tpass_hint="keep current"; else tpass_hint="empty"; fi
   read -rsp "  Tenant password         [${tpass_hint}]: " in_tpass || true; echo
   TENANT_PASSWORD="${in_tpass:-$cur_tpass}"
-else
+elif [[ "$RUN_CLOUD" == 1 ]]; then
   warn "python3 not found; skipping tenant email/password (cannot edit $CREDS_FILE)."
 fi
 

@@ -47,6 +47,14 @@
 
 static bool is_server = false;
 
+/* Persistent-link state (device MQTT-free model). When set, the socket dialed to
+ * the gateway is kept open across auths: port_comm_init() reuses it and
+ * port_comm_close() leaves it up. g_ctrl accumulates inbound control lines
+ * ("RUN_AUTH <mode>") that arrive while the device is idle. */
+static bool g_persistent = false;
+static char g_ctrl[256];
+static int  g_ctrl_len = 0;
+
 volatile uint8_t g_fault_injection_enable_comm_tx = 0;
 volatile uint8_t g_fault_injection_enable_comm_rx = 0;
 
@@ -61,6 +69,11 @@ bool port_comm_init   (port_comm_ctx_t *ctx, const char *device_id)
 {
     if (!device_id)
         return false;
+
+    /* Reuse the persistent link when it's already up (MQTT-free model): the SDK
+     * calls this per auth (SERVER_Open), but the socket stays open across auths. */
+    if (conn_fd != SOCK_INVALID)
+        return true;
 
     #ifdef _WIN32
         WSADATA wsa;
@@ -247,8 +260,158 @@ bool port_comm_receive(port_comm_ctx_t *ctx, uint8_t *buffer_rx, uint16_t buffer
     return true;
 }
 
+/* =============================================================================
+ * port_comm_connect_persistent  — dial the gateway once, keep the link, HELLO
+ * ============================================================================= */
+bool port_comm_connect_persistent(const char *tid_hex, bool wants_trigger)
+{
+    if (!tid_hex)
+        return false;
+
+    if (conn_fd == SOCK_INVALID)
+    {
+        #ifdef _WIN32
+            WSADATA wsa;
+            WSAStartup(MAKEWORD(2, 2), &wsa);
+        #endif
+
+        struct sockaddr_in addr;
+        listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd == SOCK_INVALID)
+            return false;
+
+        addr.sin_family = AF_INET;
+        addr.sin_port   = htons(PORT);
+        inet_pton(AF_INET, SERVER_IP, &addr.sin_addr);
+
+        if (connect(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+        {
+            SOCK_CLOSE(listen_fd);
+            listen_fd = SOCK_INVALID;
+            return false;
+        }
+
+        conn_fd   = listen_fd;
+        is_server = false;
+        LOG_DEBUG("Persistent link to gateway | ip=%s | port=%d", SERVER_IP, PORT);
+    }
+
+    g_persistent = true;
+    g_ctrl_len   = 0;
+
+    /* Announce presence + trigger capability: "HELLO <tid>[ TRIGGER]\n".
+     * The gateway proxies our presence and (if TRIGGER) relays cmd/run_auth. */
+    char hello[128];
+    int n = snprintf(hello, sizeof(hello), "HELLO %s%s\n",
+                     tid_hex, wants_trigger ? " TRIGGER" : "");
+    if (n > 0)
+        send(conn_fd, hello, n, 0);
+
+    return true;
+}
+
+/* =============================================================================
+ * port_comm_is_linked
+ * ============================================================================= */
+bool port_comm_is_linked(void)
+{
+    return (conn_fd != SOCK_INVALID);
+}
+
+/* =============================================================================
+ * port_comm_poll_trigger  — non-blocking check for a "RUN_AUTH <mode>" line
+ * ============================================================================= */
+int port_comm_poll_trigger(int *mode)
+{
+    if (conn_fd == SOCK_INVALID || !mode)
+        return 0;
+
+    /* Non-blocking readiness — return immediately if nothing is waiting. */
+    fd_set         readfds;
+    struct timeval tv = {0, 0};
+    FD_ZERO(&readfds);
+    FD_SET(conn_fd, &readfds);
+#ifdef _WIN32
+    int sel = select(0, &readfds, NULL, NULL, &tv);
+#else
+    int sel = select(conn_fd + 1, &readfds, NULL, NULL, &tv);
+#endif
+    if (sel <= 0)
+        return 0;
+
+    char tmp[128];
+    int  r = recv(conn_fd, (char *)tmp, sizeof(tmp) - 1, 0);
+    if (r == 0)
+    {
+        /* Gateway dropped the link — clear it so the caller reconnects. */
+        LOG_DEBUG("Persistent link closed by gateway");
+        SOCK_CLOSE(conn_fd);
+        conn_fd    = SOCK_INVALID;
+        g_ctrl_len = 0;
+        return 0;
+    }
+    if (r < 0)
+        return 0;
+
+    /* Accumulate into the control-line buffer, then look for a full line. */
+    for (int i = 0; i < r && g_ctrl_len < (int)sizeof(g_ctrl) - 1; i++)
+        g_ctrl[g_ctrl_len++] = tmp[i];
+    g_ctrl[g_ctrl_len] = '\0';
+
+    char *nl = strchr(g_ctrl, '\n');
+    if (!nl)
+        return 0;                 /* partial line — wait for the rest */
+    *nl = '\0';
+
+    int found = 0;
+    if (strncmp(g_ctrl, "RUN_AUTH", 8) == 0)
+    {
+        int m = 1;
+        const char *p = g_ctrl + 8;
+        while (*p == ' ') p++;
+        if (*p >= '1' && *p <= '3') m = *p - '0';
+        *mode = m;
+        found = 1;
+    }
+
+    /* Consume the line (keep any bytes after the newline for the next call). */
+    int consumed = (int)(nl - g_ctrl) + 1;
+    memmove(g_ctrl, g_ctrl + consumed, (size_t)(g_ctrl_len - consumed));
+    g_ctrl_len -= consumed;
+    g_ctrl[g_ctrl_len] = '\0';
+
+    return found;
+}
+
+/* =============================================================================
+ * port_comm_shutdown  — real teardown of the persistent link (process exit)
+ * ============================================================================= */
+void port_comm_shutdown(void)
+{
+    g_persistent = false;
+
+    if (conn_fd != SOCK_INVALID)
+        SOCK_CLOSE(conn_fd);
+    conn_fd    = SOCK_INVALID;
+    listen_fd  = SOCK_INVALID;
+    g_ctrl_len = 0;
+
+    #ifdef _WIN32
+        WSACleanup();
+    #endif
+}
+
 void port_comm_close  (port_comm_ctx_t *ctx)
 {
+    /* Persistent model: leave the socket open across auths — only reset the
+     * per-auth counters. Real teardown happens in port_comm_shutdown(). */
+    if (g_persistent)
+    {
+        rx_drop_count     = 0;
+        rx_received_count = 0;
+        return;
+    }
+
     if (conn_fd != SOCK_INVALID)
         SOCK_CLOSE(conn_fd);
 

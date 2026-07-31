@@ -432,15 +432,45 @@ async def _poll_auth_status(*, sdk: CloudSDK, tid: str, transaction_id: str) -> 
     return status_response
 
 
+async def _poll_mutual_auth_status(*, sdk: CloudSDK, tid: str, transaction_id: str) -> Any:
+    """
+    Poll check_mutual_auth_status until terminal. Returns the full
+    CheckAuthStatusResponse — which in the mutual-auth flow also carries HRW2
+    (the host-auth response word), so Phase 2 needs no separate requestRW.
+    """
+    last_status: Optional[str] = None
+
+    async def _check() -> Optional[Any]:
+        nonlocal last_status
+        status_response = await sdk.check_mutual_auth_status(transaction_id=transaction_id, tid=tid)
+        last_status = getattr(status_response, "status", None)
+        if last_status and last_status != AuthStatus.NOT_READY.value:
+            return status_response
+        return None
+
+    try:
+        status_response = await _poll_until(
+            timeout_s=_RW_POLL_TIMEOUT_SEC,
+            interval_s=_RW_POLL_INTERVAL_SEC,
+            fn=_check,
+        )
+    except asyncio.TimeoutError as exc:
+        raise asyncio.TimeoutError(last_status) from exc
+
+    return status_response
+
+
 async def _handle_request_cw(payload: Dict[str, Any], *, sdk: CloudSDK) -> HandlerResult:
     reader = PayloadReader(payload)
     tid = reader.require_nonempty_str("TID")
 
     t0 = time.monotonic()
-    result = await sdk.request_cw(tid=tid)
+    # Mutual-auth flow: requestMutualAuthCW (the CW is the same token-auth CW;
+    # the transaction is a mutual-auth transaction whose checkstatus returns HRW2).
+    result = await sdk.request_mutual_auth_cw(tid=tid)
     duration_ms = int((time.monotonic() - t0) * 1000)
 
-    log.info("requestCW ok tid=%s dt_ms=%s", tid, duration_ms)
+    log.info("requestMutualAuthCW ok tid=%s dt_ms=%s", tid, duration_ms)
     return ok({"CW": result.cw, "transactionId": result.transaction_id})
 
 
@@ -599,7 +629,7 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
     t0 = time.monotonic()
 
     try:
-        await sdk.reply_rw(
+        await sdk.reply_mutual_auth_rw(
             tid=tid,
             cw=cw,
             rw=rw,
@@ -619,7 +649,7 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
         raise
 
     try:
-        status_response = await _poll_auth_status(
+        status_response = await _poll_mutual_auth_status(
             sdk=sdk,
             tid=tid,
             transaction_id=transaction_id,
@@ -638,7 +668,7 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
             ErrorCode.TIMEOUT,
             ErrorResult.TIMEOUT,
             {
-                "phase": "check_auth_status",
+                "phase": "check_mutual_auth_status",
                 "transactionId": transaction_id,
                 "last_status": last_status,
             },
@@ -646,18 +676,23 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
 
     auth_status = getattr(status_response, "status", None)
     claim_token_id = getattr(status_response, "claim_token_id", None)
+    hrw2 = getattr(status_response, "hrw2", None)
     duration_ms = int((time.monotonic() - t0) * 1000)
     log.info(
-        "replyRW ok tid=%s tx=%s auth_status=%s dt_ms=%s",
+        "replyRW ok tid=%s tx=%s auth_status=%s has_hrw2=%s dt_ms=%s",
         tid,
         transaction_id,
         auth_status,
+        bool(hrw2),
         duration_ms,
     )
 
-    # Propagate claim_token_id to GW/device when present (CLAIM_TOKEN case).
-    # Existing AUT_OK / AUT_NOK payload shape stays exactly the same.
+    # Mutual-auth flow: the checkstatus verdict now also carries HRW2 (host-auth
+    # response word). Relay it so the gateway hands it to the device in the same
+    # verdict — Phase 2 no longer needs a separate requestRW round-trip.
     response_payload: Dict[str, Any] = {"auth_status": auth_status}
+    if hrw2:
+        response_payload["HRW2"] = hrw2
     if auth_status == "CLAIM_TOKEN" and claim_token_id:
         response_payload["claim_token_id"] = claim_token_id
         log.info(

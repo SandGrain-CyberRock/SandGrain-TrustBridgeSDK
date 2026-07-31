@@ -4,17 +4,17 @@
 #
 # Split deploy (two Pis): the laptop hosts the TrustBridge Docker stack
 # (BE + FE + Mosquitto + cloud-agent); THIS Pi has the SandGrain USB chip and
-# dials the GATEWAY Pi.
+# dials the GATEWAY Pi. The device is MQTT-free — the gateway is its only uplink.
 #
-#   this device Pi ──TCP :8080──► gateway Pi          (auth transport)
-#   this device Pi ──MQTT────────► laptop broker       (cmd/run_auth triggers)
+#   this device Pi ──TCP :8080──► gateway Pi   (auth transport + HELLO/RUN_AUTH)
 #
-# Default run mode is --listen (BE-driven): the device subscribes to
-#   sandgrain/v1/{tid}/cmd/run_auth   and is triggered from the TrustBridge FE/BE.
-# The interactive menu (options 1/2/3) still runs in parallel on the main thread.
-# Pass --menu to run the plain interactive menu only (no BE listener).
+# Default run mode is --listen (BE-driven): the device sends "HELLO <tid> TRIGGER"
+#   over the persistent link, and the GATEWAY relays TrustBridge's run_auth down
+#   it as "RUN_AUTH <mode>" (the gateway subscribes cmd/run_auth on the device's
+#   behalf and proxies its presence). The interactive menu (options 1/2/3) still
+#   runs in parallel. Pass --menu to run the plain interactive menu only.
 #
-# One-time on this Pi:   bash setup.sh           (installs libmosquitto-dev, etc.)
+# One-time on this Pi:   bash setup.sh           (build deps)
 #                        sudo usermod -aG dialout "$USER" && reboot   (serial access)
 # Every run:             bash run_device.sh       (prompts; remembers in .env.device)
 #
@@ -57,29 +57,16 @@ valid_host() { [ -n "$1" ] && [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
 [ -d "$DEV_DIR" ] || die "device app dir not found: $DEV_DIR"
 command -v make >/dev/null || die "make not found — run 'bash setup.sh' first."
 
-# ── 1. MQTT broker host (the device's only "cloud" endpoint) ─────────────────
-# The device reaches the broker for BE-driven run_auth triggers + telemetry. It
-# does NOT contact the TrustBridge BE directly (no whitelist sync) — that's the
-# gateway's job — so there is no separate BE host to ask for here.
-def="$(prev_env MQTT_BROKER)"; case "$def" in 127.*|localhost) def="" ;; esac
-if [ -n "$def" ]; then read -rp "MQTT broker host (LAN IP / hostname) [$def]: " MQTT_BROKER; MQTT_BROKER="${MQTT_BROKER:-$def}"
-else                  read -rp "MQTT broker host LAN IP / hostname: " MQTT_BROKER; fi
-valid_host "$MQTT_BROKER" || die "'$MQTT_BROKER' is not a valid host/IP."
-
-# ── 2. Gateway Pi host (this device dials it on :GW_PORT) ─────────────────────
+# ── 1. Gateway host + port (this device dials it on :GW_PORT) ────────────────
+# The gateway is the device's ONLY uplink: it proxies this device's presence and
+# relays TrustBridge run_auth triggers down the TCP link, so the device no longer
+# speaks MQTT and needs no broker/BE host here.
 def="$(prev_env GW_HOST)"; case "$def" in 127.*|localhost) def="" ;; esac
 if [ -n "$def" ]; then read -rp "Gateway Pi LAN IP / hostname [$def]: " GW_HOST; GW_HOST="${GW_HOST:-$def}"
 else                  read -rp "Gateway Pi LAN IP / hostname (runs test_gw): " GW_HOST; fi
 valid_host "$GW_HOST" || die "'$GW_HOST' is not a valid host/IP."
 
-# ── 3. MQTT + gateway ports/creds (Enter to keep; blank user → anonymous) ────
-MQTT_PORT="$(prev_env MQTT_PORT)"; MQTT_PORT="${MQTT_PORT:-1883}"
-MQTT_USER="$(prev_env MQTT_USER)"    # empty → device connects to the broker anonymously
-MQTT_PASS="$(prev_env MQTT_PASS)"
-GW_PORT="$(prev_env GW_PORT)";    GW_PORT="${GW_PORT:-8080}"
-read -rp  "MQTT port            [$MQTT_PORT]: " a; MQTT_PORT="${a:-$MQTT_PORT}"
-read -rp  "MQTT username        [$MQTT_USER]: " a; MQTT_USER="${a:-$MQTT_USER}"
-read -rsp "MQTT password        [${MQTT_PASS:+****}]: " a; echo; MQTT_PASS="${a:-$MQTT_PASS}"
+GW_PORT="$(prev_env GW_PORT)"; GW_PORT="${GW_PORT:-8080}"
 read -rp  "Gateway port         [$GW_PORT]: " a; GW_PORT="${a:-$GW_PORT}"
 
 # ── 3. USB serial port (auto-detect → suffix; OS-aware) ─────────────────────
@@ -134,15 +121,11 @@ fi
 {
   echo "# run_device.sh — device Pi config. Re-run run_device.sh to refresh."
   echo "ROLE=device"
-  echo "MQTT_BROKER=$MQTT_BROKER"
-  echo "MQTT_PORT=$MQTT_PORT"
-  echo "MQTT_USER=$MQTT_USER"
-  echo "MQTT_PASS=$MQTT_PASS"
   echo "GW_HOST=$GW_HOST"
   echo "GW_PORT=$GW_PORT"
   echo "USB_TTY_PORT=$USB_TTY_PORT"
 } > "$ENV_FILE"
-say "Wrote $ENV_FILE  (broker=$MQTT_BROKER:$MQTT_PORT  gateway=$GW_HOST:$GW_PORT  usb=${ttydev:-auto-scan})"
+say "Wrote $ENV_FILE  (gateway=$GW_HOST:$GW_PORT  usb=${ttydev:-auto-scan})"
 
 # ── 5. Build ─────────────────────────────────────────────────────────────────
 if [ "$DO_BUILD" = 1 ]; then
@@ -179,8 +162,6 @@ if command -v stdbuf >/dev/null 2>&1; then STDBUF="stdbuf -oL -eL"
 elif command -v gstdbuf >/dev/null 2>&1; then STDBUF="gstdbuf -oL -eL"
 else STDBUF=""; fi
 ${SUDO}env \
-  MQTT_BROKER="$MQTT_BROKER" MQTT_PORT="$MQTT_PORT" \
-  MQTT_USER="$MQTT_USER"     MQTT_PASS="$MQTT_PASS" \
   GW_HOST="$GW_HOST"         GW_PORT="$GW_PORT" \
   USB_TTY_PORT="$USB_TTY_PORT" \
   $STDBUF ./test_device${DEV_ARGS} 2>&1 | _stamp

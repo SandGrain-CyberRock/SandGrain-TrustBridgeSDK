@@ -968,10 +968,13 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             bool auth_ok    = (ctx->pending_result == SGR_MW_OK);
             bool is_claim   = (ctx->pending_result == SGR_MW_CLAIM_TOKEN);
 
+            /* Relay the mutual-auth HRW2 (host-auth response word) in the verdict
+             * so the device verifies host-auth locally — no separate Phase 2.
+             * Empty on the error-management path (options 2/3, phase-2 skipped). */
             if (is_claim)
-                dev_status = DEVICE_SendAuthClaimToken(dev_ctx, ctx->srv.claim_token_id);
+                dev_status = DEVICE_SendAuthClaimToken(dev_ctx, ctx->srv.claim_token_id, ctx->srv.hrw2_hex);
             else
-                dev_status = DEVICE_SendAuthResult(dev_ctx, auth_ok);
+                dev_status = DEVICE_SendAuthResult(dev_ctx, auth_ok, ctx->srv.hrw2_hex);
 
             if (dev_status != DEVICE_OK)
             {
