@@ -1,0 +1,30 @@
+# Host virtualenv — contains broken symlinks (venv/bin/python) that break the
+# build-context loader ("invalid file request venv/bin/python"). The image
+# builds its own deps via pip, so the host venv must never enter the context.
+venv/
+**/venv/
+.venv/
+**/.venv/
+
+# Python caches / build artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+**/*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Docs / bulky non-runtime files
+*.pdf
+
+# Local env + secrets (provided at runtime by compose, not baked into the image)
+.env
+.env.*
+!.env.example
+
+# VCS / editor
+.git/
+.gitignore
+.vscode/
+.idea/
