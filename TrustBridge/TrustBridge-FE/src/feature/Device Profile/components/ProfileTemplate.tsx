@@ -28,6 +28,9 @@ export const ProfileTemplate = ({ data }: ProfileTemplateProps) => {
             <Text variant="lgg_medium" color="primary.1700" noOfLines={1}>
               {data.profile_name}
             </Text>
+            <Text variant="xs_normal" color="gray.500">
+              #{data.profile_id}
+            </Text>
             {data.is_default && (
               <Badge
                 bg="#007CAA"

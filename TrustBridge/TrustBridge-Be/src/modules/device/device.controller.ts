@@ -16,6 +16,7 @@ import {
   Res,
   StreamableFile,
   Req,
+  HttpCode,
 } from "@nestjs/common";
 import { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -59,7 +60,7 @@ export class DeviceController {
   constructor(
     private readonly deviceService: DeviceService,
     private readonly deviceAuthService: DeviceAuthService,
-  ) {}
+  ) { }
 
   @Post()
   @Permissions("device:create")
@@ -281,6 +282,7 @@ export class DeviceController {
     description: "Device not found",
     type: NotFoundResponseDto,
   })
+  @HttpCode(200)
   async authenticate(@Param("id", ParseIntPipe) id: number) {
     return this.deviceService.reAuthenticate(id);
   }
@@ -318,6 +320,7 @@ export class DeviceController {
       },
     },
   })
+  @HttpCode(200)
   async runProcess(
     @Param("id", ParseIntPipe) id: number,
     @Body() body: {
@@ -338,6 +341,7 @@ export class DeviceController {
 
   @Post("move/to-authenticated")
   @Permissions("device:update")
+  @HttpCode(200)
   @ApiOperation({
     summary: "Move approved devices to authenticated",
     description:

@@ -19,7 +19,7 @@ import { StatusToggle } from '../../../component/StatusToggle/StatusToggle';
 const deviceGroupColumns: ColumnDef<DeviceGroup>[] = [
   {
     header: 'Device Group ID',
-    accessorKey: 'device_group_id',
+    accessorKey: 'group_id',
   },
   {
     header: 'Device Group Name',

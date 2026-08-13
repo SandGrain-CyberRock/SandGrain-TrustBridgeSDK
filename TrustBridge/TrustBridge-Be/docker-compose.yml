@@ -68,6 +68,7 @@ services:
       - "${PORT:-3000}:3000"
     volumes:
       - be_seed_state:/app/.seed-state
+      - ./logs:/app/logs
     networks: [trustbridge-net]
 
 volumes:

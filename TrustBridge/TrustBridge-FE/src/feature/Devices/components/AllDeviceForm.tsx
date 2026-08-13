@@ -4,7 +4,7 @@ import {
   TextFieldInput,
 } from '../../../component/Form';
 import { AddModal } from '../../../component/Modal/AddModal';
-import { Flex, SimpleGrid, Text } from '@chakra-ui/react';
+import { Flex, SimpleGrid } from '@chakra-ui/react';
 import { useEffect, useMemo } from 'react';
 import { useGetDeviceProfiles } from '../../Device Profile/service/DeviceProfile';
 import { useAllDevicesForm } from '../hooks/allDevicesForm';
@@ -36,7 +36,9 @@ export const AllDeviceForm = () => {
   const { data: deviceDetail } = useGetDeviceById(
     isUpdateMode ? parseInt(id, 10) : null,
   );
-  const { data: deviceGroupsData } = useGetDeviceGroups();
+  const { data: deviceGroupsData } = useGetDeviceGroups(
+    isUpdateMode ? {} : { status: 'ACTIVE' },
+  );
   const { data: deviceProfilesData } = useGetDeviceProfiles({
     limit: 1000,
     status: 'ACTIVE',
@@ -102,9 +104,7 @@ export const AllDeviceForm = () => {
           token_id: data.token_id,
           device_group_id: parseInt(data.device_group_id, 10),
           tenant_id: data.tenant_id || tenantId,
-          profile_id: data.profile_id
-            ? parseInt(data.profile_id, 10)
-            : undefined,
+          profile_id: parseInt(data?.profile_id, 10),
           batch_no: data.batch_no || undefined,
         },
       });
@@ -115,7 +115,7 @@ export const AllDeviceForm = () => {
         token_id: data.token_id,
         device_group_id: parseInt(data.device_group_id, 10),
         tenant_id: data.tenant_id || tenantId,
-        profile_id: data.profile_id ? parseInt(data.profile_id, 10) : undefined,
+        profile_id: parseInt(data?.profile_id, 10),
         batch_no: data.batch_no || undefined,
       });
     }
@@ -161,12 +161,10 @@ export const AllDeviceForm = () => {
               <SelectInput
                 name="profile_id"
                 label="Device Profile"
+                isRequired
                 selectOption={deviceProfileOptions}
                 placeholder="Select Device Profile"
               />
-              <Text fontSize="xs" color="gray.400">
-                If not selected, the default profile will be used.
-              </Text>
             </Flex>
 
             <SelectInput

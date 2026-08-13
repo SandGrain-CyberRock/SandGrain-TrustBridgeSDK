@@ -63,7 +63,8 @@ export const Devices = ({ filterStatus, isActive }: DevicesProps) => {
   const canCreate = usePermission(PERMISSIONS.DEVICE_CREATE);
   const canRetrieve = usePermission(PERMISSIONS.DEVICE_RETRIEVE);
 
-  const { data: statusCounts } = useGetDeviceStatusCounts();
+  const { data: statusCounts, refetch: refetchStatusCounts } =
+    useGetDeviceStatusCounts();
   const { data: groupsData } = useGetDeviceGroups({ limit: 100 });
   const { data: profilesData } = useGetDeviceProfiles({ limit: 100 });
 
@@ -758,7 +759,10 @@ export const Devices = ({ filterStatus, isActive }: DevicesProps) => {
               bg="orange.2500"
               color="white"
               // _hover={{ bg: '#b07d20' }}
-              onClick={() => setIsBulkLifecycleOpen(true)}
+              onClick={async () => {
+                await refetchStatusCounts();
+                setIsBulkLifecycleOpen(true);
+              }}
             >
               Move to Lifecycle
             </Button>

@@ -5,6 +5,8 @@ import {
   ConflictException,
   Logger,
   OnModuleInit,
+  Inject,
+  forwardRef,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, In, Repository, Like, IsNull } from "typeorm";
@@ -43,6 +45,7 @@ export class DeviceService implements OnModuleInit {
     @InjectRepository(TenantUserCredential)
     private credentialRepo: Repository<TenantUserCredential>,
     private dataSource: DataSource,
+    @Inject(forwardRef(() => DeviceAuthService))
     private deviceAuthService: DeviceAuthService,
     private systemActivityService: SystemActivityService,
     private mqttService: MqttService,
@@ -119,6 +122,9 @@ export class DeviceService implements OnModuleInit {
     // Sync gateway whitelist + credentials so the new device is immediately authorized
     this.syncGatewayWhitelist().catch(() => { });
     this.syncGatewayCredentials().catch(() => { });
+
+    // publish the enrolled TID to the gateway
+    this.deviceAuthService.publishEnrolledTids([saved.token_id]);
 
     // Log device creation activity
     this.systemActivityService
@@ -300,6 +306,9 @@ export class DeviceService implements OnModuleInit {
       }
     }
 
+    // publish the enrolled TIDs to the gateway
+    this.deviceAuthService.publishEnrolledTids(savedDevices.map((d) => d.token_id));
+
     // Sync gateway whitelist with all newly enrolled devices
     this.syncGatewayWhitelist().catch(() => { });
 
@@ -449,6 +458,9 @@ export class DeviceService implements OnModuleInit {
         .whereInIds(waitingOnline.map((d) => d.device_id))
         .execute();
     }
+
+    // publish the enrolled TIDs to the gateway
+    this.deviceAuthService.publishEnrolledTids(processedDevices.map((d) => d.token_id));
 
     // 6. Sync gateway whitelist
     this.syncGatewayWhitelist().catch(() => { });
@@ -1398,7 +1410,7 @@ export class DeviceService implements OnModuleInit {
       if (tidStatus?.data?.tenantId) {
         return this.tenantApiService.listTenantUsers(tidStatus.data.tenantId);
       }
-    } catch (e) {
+    } catch (e: any) {
       // Fallback to local tenant_id if SandGrain call fails
       this.logger.warn(
         "Falling back to local tenant_id for lifecycle users",

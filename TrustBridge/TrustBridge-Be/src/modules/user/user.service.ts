@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  Logger,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, In } from "typeorm";
@@ -18,6 +19,7 @@ import { SystemActivityService } from "../system-activity/system-activity.servic
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
@@ -27,7 +29,7 @@ export class UserService {
     private roleRepo: Repository<Role>,
     private emailService: EmailService,
     private systemActivityService: SystemActivityService,
-  ) {}
+  ) { }
 
   private sanitizeUser(
     user: User,
@@ -75,45 +77,54 @@ export class UserService {
   }
 
   async create(createDto: CreateUserDto) {
+
+    const email = createDto.email.trim().toLowerCase();
+    const username = createDto.username.trim();
+
     // Check if username or email already exists
     const existingUser = await this.userRepo.findOne({
-      where: [{ username: createDto.username }, { email: createDto.email }],
+      where: [{ username }, { email }],
     });
 
     if (existingUser) {
       throw new ConflictException("Username or email already exists");
     }
 
-    // 🔐 Generate strong default password
     const defaultPassword = this.generateStrongPassword();
-
     const passwordHash = await bcrypt.hash(defaultPassword, 12);
 
     const user = this.userRepo.create({
       ou_id: createDto.ou_id,
       name: createDto.name || null,
       company_title: createDto.company_title || null,
-      username: createDto.username,
-      email: createDto.email,
+      username,
+      email,
       password_hash: passwordHash,
       user_status: "ACTIVE",
       must_change_password: true,
     });
 
-    const savedUser = await this.userRepo.save(user);
+    let savedUser;
+    try {
+      savedUser = await this.userRepo.save(user);
+    } catch (err: any) {
+      // MySQL duplicate key -> convert to a proper 409 instead of bubbling as 500
+      if (err.code === "ER_DUP_ENTRY" || err.driverError?.code === "ER_DUP_ENTRY") {
+        throw new ConflictException("Username or email already exists");
+      }
+      throw err;
+    }
 
-    // Assign role if provided
     if (createDto.role_id) {
       await this.assignRole(savedUser.user_id, createDto.role_id);
     }
 
-    // Send credentials email in background — don't block the response
     this.emailService
       .sendActivationEmail(savedUser.email, savedUser.name || savedUser.username, savedUser.username, defaultPassword)
       .catch((err) => console.error("Failed to send welcome email:", err));
 
     const created = await this.findOneRaw(savedUser.user_id);
-    this.systemActivityService.logCreated("user", savedUser.user_id, savedUser.name || savedUser.username).catch(() => {});
+    this.systemActivityService.logCreated("user", savedUser.user_id, savedUser.name || savedUser.username).catch(() => { });
     return { ...this.sanitizeUser(created), generatedPassword: defaultPassword };
   }
 
@@ -204,16 +215,15 @@ export class UserService {
     }
 
     const isNumeric = /^\d+$/.test(query);
-    const searchCondition = ouId ? "AND" : "WHERE";
 
     if (isNumeric) {
       qb.andWhere(
-        `${searchCondition} (user.user_id = :id OR user.username LIKE :q OR user.email LIKE :q OR user.name LIKE :q OR user.company_title LIKE :q)`,
+        "(user.user_id = :id OR user.username LIKE :q OR user.email LIKE :q OR user.name LIKE :q OR user.company_title LIKE :q)",
         { id: Number(query), q: `%${query}%` },
       );
     } else {
       qb.andWhere(
-        `${searchCondition} (user.username LIKE :q OR user.email LIKE :q OR user.name LIKE :q OR user.company_title LIKE :q)`,
+        "(user.username LIKE :q OR user.email LIKE :q OR user.name LIKE :q OR user.company_title LIKE :q)",
         { q: `%${query}%` },
       );
     }
@@ -223,6 +233,7 @@ export class UserService {
   }
 
   private async findOneRaw(id: number): Promise<User> {
+    this.logger.log("START::UserService::findOneRaw", id);
     const user = await this.userRepo.findOne({
       where: { user_id: id },
       relations: ["org", "userRoles", "userRoles.role"],
@@ -232,15 +243,19 @@ export class UserService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
+    this.logger.log("SUCCESS::UserService::findOneRaw", id);
     return user;
   }
 
   async findOne(id: number) {
+    this.logger.log("START::UserService::findOne", id);
     const user = await this.findOneRaw(id);
+    this.logger.log("SUCCESS::UserService::findOne", id);
     return this.sanitizeUser(user);
   }
 
   async update(id: number, updateDto: UpdateUserDto) {
+    this.logger.log("START::UserService::update", id, updateDto);
     const user = await this.findOneRaw(id);
 
     if (updateDto.name !== undefined) user.name = updateDto.name;
@@ -256,17 +271,21 @@ export class UserService {
     }
 
     const updated = await this.findOneRaw(id);
-    this.systemActivityService.logUpdated("user", id, updated.name || updated.username).catch(() => {});
+    this.systemActivityService.logUpdated("user", id, updated.name || updated.username).catch(() => { });
+    this.logger.log("SUCCESS::UserService::update", id, updateDto);
     return this.sanitizeUser(updated);
   }
 
   async remove(id: number): Promise<void> {
+    this.logger.log("START::UserService::remove", id);
     const user = await this.findOneRaw(id);
     await this.userRepo.softRemove(user);
-    this.systemActivityService.logDeleted("user", id, user.name || user.username).catch(() => {});
+    this.systemActivityService.logDeleted("user", id, user.name || user.username).catch(() => { });
+    this.logger.log("SUCCESS::UserService::remove", id);
   }
 
   async assignRole(userId: number, roleId: number): Promise<void> {
+    this.logger.log("START::UserService::assignRole", userId, roleId);
     // Verify user exists
     await this.findOneRaw(userId);
 
@@ -289,18 +308,22 @@ export class UserService {
     });
 
     await this.userRoleRepo.save(userRole);
+    this.logger.log("SUCCESS::UserService::assignRole", userId, roleId);
   }
 
   async getUserRole(userId: number): Promise<Role | null> {
+    this.logger.log("START::UserService::getUserRole", userId);
     const userRole = await this.userRoleRepo.findOne({
       where: { user_id: userId },
       relations: ["role"],
     });
+    this.logger.log("SUCCESS::UserService::getUserRole", userId);
 
     return userRole ? userRole.role : null;
   }
 
   async assignRoles(userId: number, roleIds: number[]): Promise<void> {
+    this.logger.log("START::UserService::assignRoles", userId, roleIds);
     // Remove existing roles
     await this.userRoleRepo.delete({ user_id: userId });
 
@@ -319,18 +342,22 @@ export class UserService {
     );
 
     await this.userRoleRepo.save(userRoles);
+    this.logger.log("SUCCESS::UserService::assignRoles", userId, roleIds);
   }
 
   async getUserRoles(userId: number): Promise<Role[]> {
+    this.logger.log("START::UserService::getUserRoles", userId);
     const userRoles = await this.userRoleRepo.find({
       where: { user_id: userId },
       relations: ["role"],
     });
 
+    this.logger.log("SUCCESS::UserService::getUserRoles", userId);
     return userRoles.map((ur) => ur.role);
   }
 
   async generatePasswordResetToken(email: string): Promise<string> {
+    this.logger.log("START::UserService::generatePasswordResetToken", email);
     const user = await this.userRepo.findOne({ where: { email } });
 
     if (!user) {
@@ -344,10 +371,12 @@ export class UserService {
     user.password_reset_expires = resetExpires;
     await this.userRepo.save(user);
 
+    this.logger.log("SUCCESS::UserService::generatePasswordResetToken", email);
     return resetToken;
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
+    this.logger.log("START::UserService::resetPassword", token, newPassword);
     const user = await this.userRepo.findOne({
       where: { password_reset_token: token },
     });
@@ -366,9 +395,11 @@ export class UserService {
     user.password_reset_expires = null;
 
     await this.userRepo.save(user);
+    this.logger.log("SUCCESS::UserService::resetPassword", token, newPassword);
   }
 
   async resendInvitation(userId: number): Promise<{ message: string }> {
+    this.logger.log("START::UserService::resendInvitation", userId);
     const user = await this.findOneRaw(userId);
 
     // Check if user already set their password
@@ -391,10 +422,12 @@ export class UserService {
       invitationToken,
     );
 
+    this.logger.log("SUCCESS::UserService::resendInvitation", userId);
     return { message: "Invitation email resent successfully" };
   }
 
   async setPassword(token: string, password: string): Promise<void> {
+    this.logger.log("START::UserService::setPassword", token, password);
     const user = await this.userRepo.findOne({
       where: { invitation_token: token },
     });
@@ -413,6 +446,7 @@ export class UserService {
     user.invitation_expires = null;
 
     await this.userRepo.save(user);
+    this.logger.log("SUCCESS::UserService::setPassword", token, password);
   }
 
   // Export methods
@@ -420,6 +454,7 @@ export class UserService {
     ouId?: number,
     status?: string,
   ): Promise<User[]> {
+    this.logger.log("START::UserService::getUsersForExport", ouId, status);
     const qb = this.userRepo
       .createQueryBuilder("user")
       .leftJoinAndSelect("user.org", "org")
@@ -437,6 +472,7 @@ export class UserService {
       });
     }
 
+    this.logger.log("SUCCESS::UserService::getUsersForExport", ouId, status);
     return await qb.getMany();
   }
 

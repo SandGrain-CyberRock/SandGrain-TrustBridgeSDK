@@ -9,6 +9,7 @@ import {
   UseGuards,
   ParseIntPipe,
   Query,
+  HttpCode,
 } from "@nestjs/common";
 import {
   ApiTags,
@@ -44,7 +45,7 @@ import {
 @Controller("roles")
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 export class RoleController {
-  constructor(private readonly roleService: RoleService) {}
+  constructor(private readonly roleService: RoleService) { }
 
   @Post()
   @Roles("TRUST_ADMIN", "ADMINISTRATOR")
@@ -326,6 +327,7 @@ export class RoleController {
     description: "Role not found",
     type: NotFoundResponseDto,
   })
+  @HttpCode(200)
   async assignPermissions(
     @Param("id", ParseIntPipe) id: number,
     @Body() assignPermissionsDto: AssignPermissionsDto,

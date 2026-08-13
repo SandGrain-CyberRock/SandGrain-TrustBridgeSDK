@@ -4,6 +4,7 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  Logger,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -30,6 +31,7 @@ const LOCK_DURATION_MINUTES = 30;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
@@ -61,230 +63,274 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto) {
-    const { username, password } = loginDto;
+    try {
 
-    const user = await this.userRepo.findOne({
-      where: { username },
-      relations: ["org"],
-    });
+      const { username, password } = loginDto;
+      this.logger.log("START::AuthService::login", username);
 
-    if (!user) {
-      throw new UnauthorizedException("Invalid credentials");
-    }
+      return this.userRepo.manager.transaction(async (manager) => {
+        const user = await manager.findOne(User, {
+          where: { username },
+          relations: ["org"],
+          lock: { mode: "pessimistic_write" },
+        });
 
-    if (user.user_status !== "ACTIVE") {
-      throw new UnauthorizedException("Account is inactive");
-    }
+        if (!user) {
+          throw new UnauthorizedException("Invalid credentials");
+        }
 
-    // Check if account is locked
-    if (user.acc_locked_until && user.acc_locked_until > new Date()) {
-      const remainingTime = Math.ceil(
-        (user.acc_locked_until.getTime() - Date.now()) / 60000,
-      );
-      throw new BadRequestException(
-        `Account is locked. Try again in ${remainingTime} minutes`,
-      );
-    }
+        if (user.user_status !== "ACTIVE") {
+          throw new UnauthorizedException("Account is inactive");
+        }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+        if (user.acc_locked_until && user.acc_locked_until > new Date()) {
+          const remainingTime = Math.ceil(
+            (user.acc_locked_until.getTime() - Date.now()) / 60000,
+          );
+          throw new BadRequestException(
+            `Account is locked. Try again in ${remainingTime} minutes`,
+          );
+        }
 
-    if (!isPasswordValid) {
-      user.failed_logins = (user.failed_logins || 0) + 1;
+        const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
-      const attemptsLeft = MAX_FAILED_ATTEMPTS - user.failed_logins;
+        if (!isPasswordValid) {
+          user.failed_logins = (user.failed_logins || 0) + 1;
+          const attemptsLeft = MAX_FAILED_ATTEMPTS - user.failed_logins;
 
-      // If exceeded max attempts → lock account
-      if (user.failed_logins >= MAX_FAILED_ATTEMPTS) {
-        user.acc_locked_until = new Date(
-          Date.now() + LOCK_DURATION_MINUTES * 60000,
-        );
+          if (user.failed_logins >= MAX_FAILED_ATTEMPTS) {
+            user.acc_locked_until = new Date(Date.now() + LOCK_DURATION_MINUTES * 60000);
+            await manager.save(user);
+            throw new BadRequestException(
+              `Account locked due to too many failed attempts. Try again in ${LOCK_DURATION_MINUTES} minutes.`,
+            );
+          }
 
-        await this.userRepo.save(user);
+          await manager.save(user);
+          throw new UnauthorizedException(
+            `Invalid credentials. ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} remaining.`,
+          );
+        }
 
-        throw new BadRequestException(
-          `Account locked due to too many failed attempts. Try again in ${LOCK_DURATION_MINUTES} minutes.`,
-        );
-      }
+        user.failed_logins = 0;
+        user.acc_locked_until = null;
+        user.last_login_at = new Date();
+        user.token_version = (user.token_version || 0) + 1;
+        await manager.save(user);
 
-      await this.userRepo.save(user);
+        const userRoles = await manager.find(UserRole, {
+          where: { user_id: user.user_id },
+          relations: ["role"],
+        });
+        const roles = userRoles.map((ur) => ur.role.name);
 
-      throw new UnauthorizedException(
-        `Invalid credentials. ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} remaining.`,
-      );
-    }
+        let credentialsConfigured = true;
+        if (user.ou_id) {
+          const tenant = await manager.findOne(Tenant, { where: { ou_id: user.ou_id } });
+          credentialsConfigured = tenant?.credentials_configured ?? false;
+        } else {
+          credentialsConfigured = false;
+        }
 
-    // Reset failed login attempts on successful login and bump token version
-    // to invalidate any existing sessions
-    user.failed_logins = 0;
-    user.acc_locked_until = null;
-    user.last_login_at = new Date();
-    user.token_version = (user.token_version || 0) + 1;
-    await this.userRepo.save(user);
+        const needsInitialization = await this.checkNeedsInitialization(user, roles);
 
-    // Check user roles for needsInitialization check
-    const userRoles = await this.userRoleRepo.find({
-      where: { user_id: user.user_id },
-      relations: ["role"],
-    });
-    const roles = userRoles.map((ur) => ur.role.name);
-
-    // Check if tenant credentials are configured
-    let credentialsConfigured = true;
-    if (user.ou_id) {
-      const tenant = await this.tenantRepo.findOne({
-        where: { ou_id: user.ou_id },
-      });
-      credentialsConfigured = tenant?.credentials_configured ?? false;
-    } else {
-      // TrustAdmin without org — credentials not configured yet
-      credentialsConfigured = false;
-    }
-
-    const needsInitialization = await this.checkNeedsInitialization(user, roles);
-
-    const payload = {
-      sub: user.user_id,
-      username: user.username,
-      email: user.email,
-      ou_id: user.ou_id,
-      token_version: user.token_version,
-    };
-
-    return {
-      data: {
-        access_token: this.jwtService.sign(payload),
-
-        user: {
-          user_id: user.user_id,
+        const payload = {
+          sub: user.user_id,
           username: user.username,
           email: user.email,
           ou_id: user.ou_id,
-          org_name: user.org?.ou_name,
-          mustChangePassword: user.must_change_password,
-          credentialsConfigured,
-          needsInitialization,
-        },
-      },
-      message: "User logged in successfully",
-    };
+          token_version: user.token_version,
+        };
+
+        this.logger.log("SUCCESS::AuthService::login", loginDto.username);
+        return {
+          data: {
+            access_token: this.jwtService.sign(payload),
+            user: {
+              user_id: user.user_id,
+              username: user.username,
+              email: user.email,
+              ou_id: user.ou_id,
+              org_name: user.org?.ou_name,
+              mustChangePassword: user.must_change_password,
+              credentialsConfigured,
+              needsInitialization,
+            },
+          },
+          message: "User logged in successfully",
+        };
+      });
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::login", error);
+      throw error;
+    }
   }
 
   async getProfile(userId: number) {
-    const user = await this.userRepo.findOne({
-      where: { user_id: userId },
-      relations: ["org"],
-    });
+    try {
+      this.logger.log("START::AuthService::getProfile", userId);
+      const user = await this.userRepo.findOne({
+        where: { user_id: userId },
+        relations: ["org"],
+      });
 
-    if (!user) {
-      throw new UnauthorizedException("User not found");
+      if (!user) {
+        this.logger.error("ERROR::AuthService::getProfile", "User not found", userId);
+        throw new UnauthorizedException("User not found");
+      }
+
+      this.logger.log("SUCCESS::AuthService::getProfile", userId);
+      return {
+        data: {
+          user_id: user.user_id,
+          username: user.username,
+          email: user.email,
+          name: user.name,
+          company_title: user.company_title,
+          ou_id: user.ou_id,
+          org_name: user.org?.ou_name,
+          last_login_at: user.last_login_at,
+          mustChangePassword: user.must_change_password,
+        },
+        message: "Profile retrieved successfully",
+      };
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::getProfile", error);
+      throw error;
     }
-
-    return {
-      data: {
-        user_id: user.user_id,
-        username: user.username,
-        email: user.email,
-        name: user.name,
-        company_title: user.company_title,
-        ou_id: user.ou_id,
-        org_name: user.org?.ou_name,
-        last_login_at: user.last_login_at,
-        mustChangePassword: user.must_change_password,
-      },
-      message: "Profile retrieved successfully",
-    };
   }
 
   async updateProfile(userId: number, dto: { name?: string; company_title?: string }) {
-    const user = await this.userRepo.findOne({ where: { user_id: userId }, relations: ["org"] });
-    if (!user) throw new UnauthorizedException("User not found");
-    if (dto.name !== undefined) user.name = dto.name;
-    if (dto.company_title !== undefined) user.company_title = dto.company_title;
-    await this.userRepo.save(user);
-    return {
-      data: {
-        user_id: user.user_id,
-        username: user.username,
-        email: user.email,
-        name: user.name,
-        company_title: user.company_title,
-        ou_id: user.ou_id,
-        org_name: user.org?.ou_name,
-      },
-      message: "Profile updated successfully",
-    };
+    try {
+      this.logger.log("START::AuthService::updateProfile", userId, dto);
+
+      const user = await this.userRepo.findOne({ where: { user_id: userId }, relations: ["org"] });
+      if (!user) throw new UnauthorizedException("User not found");
+      if (dto.name !== undefined) user.name = dto.name;
+      if (dto.company_title !== undefined) user.company_title = dto.company_title;
+      await this.userRepo.save(user);
+
+      this.logger.log("SUCCESS::AuthService::updateProfile", userId, dto);
+      return {
+        data: {
+          user_id: user.user_id,
+          username: user.username,
+          email: user.email,
+          name: user.name,
+          company_title: user.company_title,
+          ou_id: user.ou_id,
+          org_name: user.org?.ou_name,
+        },
+        message: "Profile updated successfully",
+      };
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::updateProfile", error);
+      throw error;
+    }
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
-    const resetToken = await this.userService.generatePasswordResetToken(
-      forgotPasswordDto.email,
-    );
+    try {
+      this.logger.log("START::AuthService::forgotPassword", forgotPasswordDto.email);
 
-    // Send email in background — don't block the response
-    this.emailService
-      .sendPasswordResetEmail(forgotPasswordDto.email, resetToken)
-      .catch((err) =>
-        console.error("Failed to send password reset email:", err),
+      const resetToken = await this.userService.generatePasswordResetToken(
+        forgotPasswordDto.email,
       );
 
-    return {
-      data: null,
-      message: "Password reset link sent to your email",
-    };
+      // Send email in background — don't block the response
+      this.emailService
+        .sendPasswordResetEmail(forgotPasswordDto.email, resetToken)
+        .catch((err) =>
+          console.error("Failed to send password reset email:", err),
+        );
+
+      this.logger.log("SUCCESS::AuthService::forgotPassword", forgotPasswordDto.email);
+      return {
+        data: null,
+        message: "Password reset link sent to your email",
+      };
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::forgotPassword", error);
+      throw error;
+    }
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
-    await this.userService.resetPassword(
-      resetPasswordDto.token,
-      resetPasswordDto.password,
-    );
+    try {
+      this.logger.log("START::AuthService::resetPassword", resetPasswordDto.token);
 
-    return {
-      data: null,
-      message:
-        "Password reset successfully. You can now log in with your new password.",
-    };
+      await this.userService.resetPassword(
+        resetPasswordDto.token,
+        resetPasswordDto.password,
+      );
+
+      this.logger.log("SUCCESS::AuthService::resetPassword", resetPasswordDto.token);
+      return {
+        data: null,
+        message:
+          "Password reset successfully. You can now log in with your new password.",
+      };
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::resetPassword", error);
+      throw error;
+    }
   }
 
   async setPassword(setPasswordDto: SetPasswordDto) {
-    await this.userService.setPassword(
-      setPasswordDto.token,
-      setPasswordDto.password,
-    );
+    try {
+      this.logger.log("START::AuthService::setPassword", setPasswordDto.token);
 
-    return {
-      data: null,
-      message: "Password set successfully. You can now log in.",
-    };
+      await this.userService.setPassword(
+        setPasswordDto.token,
+        setPasswordDto.password,
+      );
+
+      this.logger.log("SUCCESS::AuthService::setPassword", setPasswordDto.token);
+      return {
+        data: null,
+        message: "Password set successfully. You can now log in.",
+      };
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::setPassword", error);
+      throw error;
+    }
   }
 
   async changePassword(userId: number, dto: ChangePasswordDto) {
-    const user = await this.userRepo.findOne({ where: { user_id: userId } });
-    if (!user) throw new NotFoundException("User not found");
+    try {
+      this.logger.log("START::AuthService::changePassword", userId, dto);
 
-    // Verify old password
-    const isOldValid = await bcrypt.compare(
-      dto.oldPassword,
-      user.password_hash,
-    );
-    if (!isOldValid) throw new BadRequestException("Old password is incorrect");
 
-    // Hash new password
-    user.password_hash = await bcrypt.hash(dto.newPassword, 10);
+      const user = await this.userRepo.findOne({ where: { user_id: userId } });
+      if (!user) throw new NotFoundException("User not found");
 
-    // Remove must_change_password flag
-    user.must_change_password = false;
+      // Verify old password
+      const isOldValid = await bcrypt.compare(
+        dto.oldPassword,
+        user.password_hash,
+      );
+      if (!isOldValid) throw new BadRequestException("Old password is incorrect");
 
-    // Do NOT invalidate sessions - keep user logged in
-    // user.token_version = (user.token_version || 0) + 1;
+      // Hash new password
+      user.password_hash = await bcrypt.hash(dto.newPassword, 10);
 
-    await this.userRepo.save(user);
+      // Remove must_change_password flag
+      user.must_change_password = false;
 
-    return { data: null, message: "Password changed successfully" };
+      // Do NOT invalidate sessions - keep user logged in
+      // user.token_version = (user.token_version || 0) + 1;
+
+      await this.userRepo.save(user);
+
+      return { data: null, message: "Password changed successfully" };
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::changePassword", error);
+      throw error;
+    }
   }
 
   async initializeSystem(userId: number, dto: InitializeSystemDto) {
+    this.logger.log("START::AuthService::initializeSystem", userId, dto);
     const user = await this.userRepo.findOne({
       where: { user_id: userId },
       relations: ["org"],
@@ -304,6 +350,7 @@ export class AuthService {
     // Prevent re-initialization
     const existingOrgs = await this.orgRepo.count();
     if (existingOrgs > 0) {
+      this.logger.error("ERROR::AuthService::initializeSystem", "System is already initialized");
       throw new ConflictException("System is already initialized");
     }
 
@@ -391,6 +438,7 @@ export class AuthService {
         token_version: user.token_version,
       };
 
+      this.logger.log("SUCCESS::AuthService::initializeSystem", userId, dto);
       return {
         data: {
           access_token: this.jwtService.sign(newPayload),
@@ -409,6 +457,7 @@ export class AuthService {
         message: "System initialized successfully",
       };
     } catch (error) {
+      console.error("Error initializing system:", error);
       await queryRunner.rollbackTransaction();
       throw error;
     } finally {
@@ -440,41 +489,49 @@ export class AuthService {
   }
 
   async adminResetPassword(userId: number) {
-    const user = await this.userRepo.findOne({ where: { user_id: userId } });
-    if (!user) throw new NotFoundException("User not found");
+    try {
+      this.logger.log("START::AuthService::adminResetPassword", userId);
 
-    // Auto-generate a secure temporary password
-    const tempPassword =
-      crypto.randomBytes(6).toString("hex").toUpperCase().slice(0, 4) +
-      "@" +
-      crypto.randomBytes(4).toString("hex");
+      const user = await this.userRepo.findOne({ where: { user_id: userId } });
+      if (!user) throw new NotFoundException("User not found");
 
-    // Hash the temporary password
-    user.password_hash = await bcrypt.hash(tempPassword, 10);
+      // Auto-generate a secure temporary password
+      const tempPassword =
+        crypto.randomBytes(6).toString("hex").toUpperCase().slice(0, 4) +
+        "@" +
+        crypto.randomBytes(4).toString("hex");
 
-    // Set flag so user must change password at next login
-    user.must_change_password = true;
+      // Hash the temporary password
+      user.password_hash = await bcrypt.hash(tempPassword, 10);
 
-    // Reset failed login attempts & unlock the account
-    user.failed_logins = 0;
-    user.acc_locked_until = null;
+      // Set flag so user must change password at next login
+      user.must_change_password = true;
 
-    // Invalidate all existing sessions
-    user.token_version = (user.token_version || 0) + 1;
+      // Reset failed login attempts & unlock the account
+      user.failed_logins = 0;
+      user.acc_locked_until = null;
 
-    await this.userRepo.save(user);
+      // Invalidate all existing sessions
+      user.token_version = (user.token_version || 0) + 1;
 
-    // Send email in background — don't block the response
-    this.emailService
-      .sendPasswordChangedEmail(user.email, user.name || user.username, user.username, tempPassword)
-      .catch((err) =>
-        console.error("Failed to send admin reset password email:", err),
-      );
+      await this.userRepo.save(user);
 
-    return {
-      username: user.username,
-      email: user.email,
-      generatedPassword: tempPassword,
-    };
+      // Send email in background — don't block the response
+      this.emailService
+        .sendPasswordChangedEmail(user.email, user.name || user.username, user.username, tempPassword)
+        .catch((err) =>
+          console.error("Failed to send admin reset password email:", err),
+        );
+
+      this.logger.log("SUCCESS::AuthService::adminResetPassword", userId);
+      return {
+        username: user.username,
+        email: user.email,
+        generatedPassword: tempPassword,
+      };
+    } catch (error) {
+      this.logger.error("ERROR::AuthService::adminResetPassword", error);
+      throw error;
+    }
   }
 }

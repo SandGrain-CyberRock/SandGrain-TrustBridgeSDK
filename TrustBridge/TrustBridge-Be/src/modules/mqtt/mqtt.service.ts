@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import * as mqtt from "mqtt";
+import { TraceLogService } from "src/common/services/trace-log.service";
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -16,6 +17,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   // Presence callbacks registered by DeviceAuthService
   private onDeviceOnlineCb: ((tid: string) => void) | null = null;
   private onDeviceOfflineCb: ((tid: string) => void) | null = null;
+
+  // Gateway status callback registered by DeviceAuthService
+  private onGatewayStatusCb: (() => void) | null = null;
+
 
   // Gateway log callback registered by DeviceAuthService
   private onGwLogCb: ((tid: string, log: { step: string; status: string; message: string; attempt: number }) => void) | null = null;
@@ -34,6 +39,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   // the SDK has been running >60s to get stuck in "idle" with no trigger.
   private readonly onlineTids = new Set<string>();
 
+
+  constructor(private readonly traceLogService: TraceLogService) { }
+
+
   onModuleInit(): void {
     const host = process.env.MQTT_HOST || "localhost";
     const port = process.env.MQTT_PORT || "1883";
@@ -43,6 +52,23 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.client.on("connect", () => {
       this.connected = true;
       this.logger.log(`Connected to MQTT broker at ${host}:${port}`);
+
+
+      // Subscribe to gateway status topic
+      this.client.subscribe(
+        "sandgrain/v1/+/gw_status",
+        { qos: 0 },
+        (err) => {
+          if (err)
+            this.logger.error(
+              `Failed to subscribe to device presence: ${err.message}`,
+            );
+          else
+            this.logger.log(
+              "Subscribed to device presence: sandgrain/v1/+/status",
+            );
+        },
+      );
 
       // Subscribe to device presence topic (all devices)
       this.client.subscribe(
@@ -134,6 +160,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // Handle gateway status messages
+      if (this.isGatewayStatusTopic(topic)) {
+        this.handleGatewayStatusMessage(topic, message);
+        return;
+      }
+
       // Handle request/response listeners (one-time)
       const handler = this.listeners.get(topic);
       if (handler) {
@@ -181,6 +213,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     onGwLog: (tid: string, log: { step: string; status: string; message: string; attempt: number }) => void,
   ): void {
     this.onGwLogCb = onGwLog;
+  }
+
+
+  registerGatewayStatusCallback(cb: () => void): void {
+    this.onGatewayStatusCb = cb;
   }
 
   /**
@@ -232,12 +269,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   ): Promise<string> {
     const reqTopic = `sandgrain/v1/${tid}/req/computeRW`;
     const rspTopic = `sandgrain/v1/${tid}/rsp/computeRW`;
+    const start = Date.now();
 
     const responsePromise = this._waitForResponse(rspTopic, timeoutMs);
-
+    const requestData = { type: 4, payload: { CW: cw, fault_mode: faultMode } };
     this.client.publish(
       reqTopic,
-      JSON.stringify({ type: 4, payload: { CW: cw, fault_mode: faultMode } }),
+      JSON.stringify(requestData),
       { qos: 1 },
     );
 
@@ -246,14 +284,38 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const response = await responsePromise;
 
     if (response?.status?.code !== 0) {
+      this.traceLogService.log({
+        leaf_id: tid,
+        event_scope: "leaf",
+        process_type: "authentication", step: "request_rw", status: "failed",
+        request_data: requestData,
+        message: response?.status?.result || "unknown error",
+        response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+      });
       throw new Error(
         `computeRW failed: ${response?.status?.result || "unknown error"}`,
       );
     }
 
     if (!response?.payload?.RW) {
+      this.traceLogService.log({
+        leaf_id: tid,
+        event_scope: "leaf",
+        process_type: "authentication", step: "request_rw", status: "failed",
+        message: "computeRW response missing RW",
+        request_data: requestData,
+        response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+      });
       throw new Error("computeRW response missing RW");
     }
+
+    this.traceLogService.log({
+      leaf_id: tid,
+      event_scope: "leaf",
+      process_type: "authentication", step: "request_rw", status: "success",
+      request_data: requestData,
+      response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+    });
 
     return response.payload.RW as string;
   }
@@ -271,6 +333,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{ fw_verify: string; rw: string }> {
     const reqTopic = `sandgrain/v1/${tid}/req/computeFWVerification`;
     const rspTopic = `sandgrain/v1/${tid}/rsp/computeFWVerification`;
+    const start = Date.now();
 
     const responsePromise = this._waitForResponse(rspTopic, timeoutMs);
 
@@ -280,13 +343,35 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const response = await responsePromise;
 
     if (response?.status?.code !== 0) {
+      this.traceLogService.log({
+        leaf_id: tid,
+        event_scope: "leaf",
+        process_type: "fw_verification", step: "compute_fw_verification", status: "failed",
+        message: response?.status?.result || 'unknown error',
+        response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+      });
       throw new Error(
         `computeFWVerification failed: ${response?.status?.result || 'unknown error'}`,
       );
     }
     if (!response?.payload?.FW_VERIFY || !response?.payload?.RW) {
+      this.traceLogService.log({
+        leaf_id: tid,
+        event_scope: "leaf",
+        process_type: "fw_verification", step: "compute_fw_verification", status: "failed",
+        message: 'computeFWVerification response missing FW_VERIFY or RW',
+        response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+      });
       throw new Error('computeFWVerification response missing FW_VERIFY or RW');
     }
+
+    this.traceLogService.log({
+      leaf_id: tid,
+      event_scope: "leaf",
+      process_type: "fw_verification", step: "compute_fw_verification", status: "success",
+      response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+    });
+
 
     return { fw_verify: response.payload.FW_VERIFY as string, rw: response.payload.RW as string };
   }
@@ -306,12 +391,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{ cw: string; rw: string }> {
     const reqTopic = `sandgrain/v1/${tid}/req/computeInstallation`;
     const rspTopic = `sandgrain/v1/${tid}/rsp/computeInstallation`;
+    const start = Date.now();
 
     const responsePromise = this._waitForResponse(rspTopic, timeoutMs);
-
+    const requestData = { type: 6, payload: { FW_RW: fwRw } };
     this.client.publish(
       reqTopic,
-      JSON.stringify({ type: 6, payload: { FW_RW: fwRw } }),
+      JSON.stringify(requestData),
       { qos: 1 },
     );
     this.logger.log(`Published computeInstallation for TID=${tid}`);
@@ -319,13 +405,36 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const response = await responsePromise;
 
     if (response?.status?.code !== 0) {
+      this.traceLogService.log({
+        leaf_id: tid,
+        event_scope: "leaf",
+        process_type: "installation", step: "compute_installation", status: "failed",
+        message: response?.status?.result || 'unknown error',
+        request_data: requestData,
+        response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+      });
       throw new Error(
         `computeInstallation failed: ${response?.status?.result || 'unknown error'}`,
       );
     }
     if (!response?.payload?.CW || !response?.payload?.RW) {
+      this.traceLogService.log({
+        leaf_id: tid,
+        event_scope: "leaf",
+        process_type: "installation", step: "compute_installation", status: "failed",
+        message: 'computeInstallation response missing CW or RW',
+        response_data: response, duration_ms: Date.now() - start, attempt_number: 1,
+        request_data: requestData,
+      });
       throw new Error('computeInstallation response missing CW or RW');
     }
+
+    this.traceLogService.log({
+      leaf_id: tid,
+      event_scope: "leaf",
+      process_type: "installation", step: "compute_installation", status: "success",
+      response_data: response, request_data: requestData, duration_ms: Date.now() - start, attempt_number: 1,
+    });
 
     return { cw: response.payload.CW as string, rw: response.payload.RW as string };
   }
@@ -339,6 +448,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       parts[0] === "sandgrain" &&
       parts[1] === "v1" &&
       parts[3] === "status"
+    );
+  }
+
+
+  private isGatewayStatusTopic(topic: string): boolean {
+    const parts = topic.split("/");
+    return (
+      parts.length === 4 &&
+      parts[0] === "sandgrain" &&
+      parts[1] === "v1" &&
+      parts[3] === "gw_status"
     );
   }
 
@@ -365,7 +485,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private handleAuthResultMessage(topic: string, message: Buffer): void {
     const parts = topic.split("/");
     const tid = parts[2].toLowerCase();
-    let payload: { auth_status: string };
+    let payload: { auth_status: string, gateway_id: string, app_message_seq: number };
     try {
       payload = JSON.parse(message.toString());
     } catch {
@@ -373,6 +493,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.logger.log(`Auth result: TID=${tid} auth_status=${payload.auth_status}`);
+    this.traceLogService.log({
+      leaf_id: tid,
+      event_scope: "leaf",
+      edge_node_id: payload.gateway_id ?? null,
+      app_seq_scope: payload.app_message_seq !== undefined ? "leaf" : undefined,
+      app_message_seq: payload.app_message_seq ?? undefined,
+      process_type: "authentication",
+      step: "auth_result",
+      status: payload?.auth_status,
+      response_data: payload,
+      attempt_number: 1,
+    });
     if (this.onAuthResultCb) this.onAuthResultCb(tid, payload.auth_status);
   }
 
@@ -405,10 +537,61 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const claimTokenId = payload.claim_token_id;
     if (!claimTokenId) {
       this.logger.warn(`claim forward missing claim_token_id (TID=${tid})`);
+      this.traceLogService.log({
+        leaf_id: tid,
+        event_scope: "leaf",
+        request_data: JSON.parse(message.toString()),
+        process_type: "installation",
+        step: "claim",
+        status: "failed",
+        message: "claim forward missing claim_token_id",
+        response_data: payload,
+        attempt_number: 1,
+      });
       return;
     }
     this.logger.log(`Claim forward: TID=${tid} claim_token_id=${claimTokenId}`);
+    this.traceLogService.log({
+      leaf_id: tid,
+      event_scope: "leaf",
+      request_data: JSON.parse(message.toString()),
+      process_type: "installation",
+      step: "claim",
+      status: "success",
+      response_data: payload,
+      attempt_number: 1,
+    });
     if (this.onClaimCb) this.onClaimCb(tid, claimTokenId);
+  }
+
+  private handleGatewayStatusMessage(topic: string, message: Buffer): void {
+    let status: string;
+    try {
+      const parsed = JSON.parse(message.toString());
+      status = parsed?.status || String(parsed);
+    } catch {
+      status = message.toString().trim();
+    }
+    console.log("Gateway status message received", message.toString(), topic);
+    if (status === "online") {
+      if (this.onGatewayStatusCb) this.onGatewayStatusCb();
+    } else if (status === "offline") {
+      console.log("Gateway status message received", message.toString(), topic);
+      // TODO: handle offline status
+    }
+
+    const ipAddress = message.toString().split(" ")[2];
+    this.traceLogService.log({
+      edge_node_id: ipAddress ?? null,
+      event_scope: "edge_node",
+      request_data: JSON.parse(message.toString()),
+      process_type: "authentication",
+      step: "gw_status",
+      status: status,
+      message: `gateway ${status}`,
+      attempt_number: 1,
+    });
+    return;
   }
 
   registerClaimCallback(
@@ -421,7 +604,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const parts = topic.split("/");
     const tid = parts[2].toLowerCase();
 
-    let log: { step: string; status: string; message: string; attempt: number };
+    let log: { step: string; status: string; message: string; attempt: number, gateway_id: string, app_message_seq: number };
     try {
       log = JSON.parse(message.toString());
     } catch {
@@ -433,7 +616,21 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       `GW log: TID=${tid} step=${log.step} status=${log.status} attempt=${log.attempt} — ${log.message}`,
     );
 
-    if (this.onGwLogCb) this.onGwLogCb(tid, log);
+    this.traceLogService.log({
+      leaf_id: tid,
+      event_scope: "edge_node",
+      edge_node_id: log.gateway_id ?? null,
+      app_seq_scope: log.app_message_seq !== undefined ? "edge_node" : undefined,
+      app_message_seq: log.app_message_seq ?? undefined,
+      process_type: "authentication",
+      step: `gw:${log?.step}`,
+      status: log?.status,
+      message: `[Gateway] ${log?.message}`,
+      request_data: JSON.parse(message.toString()),
+      attempt_number: log?.attempt,
+    });
+
+    // if (this.onGwLogCb) this.onGwLogCb(tid, log);
   }
 
   private handlePresenceMessage(topic: string, message: Buffer): void {

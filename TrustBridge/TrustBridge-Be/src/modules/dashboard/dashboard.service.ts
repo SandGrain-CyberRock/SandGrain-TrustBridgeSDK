@@ -1,22 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, Repository } from "typeorm";
+
+import { Repository } from "typeorm";
+
+import { DeviceLog } from "../../entities/device-log.entity";
 import { Device } from "../../entities/device.entity";
 import { SystemActivity } from "../../entities/system-activity.entity";
-import { DeviceLog } from "../../entities/device-log.entity";
-import { Tenant } from "../../entities/tenant.entity";
-
-export interface DashboardStats {
-  total_devices: number;
-  new_devices: number;
-  rejected_devices: number;
-  claimed_devices: number;
-  active_devices: number;
-  inactive_devices: number;
-  failed_authentications: number;
-  recent_events: number;
-  auth_success_rate: number;
-}
+import { DashboardStats } from "./types";
 
 @Injectable()
 export class DashboardService {
@@ -29,195 +19,235 @@ export class DashboardService {
     private activityRepo: Repository<SystemActivity>,
     @InjectRepository(DeviceLog)
     private logRepo: Repository<DeviceLog>,
-    @InjectRepository(Tenant)
-    private tenantRepo: Repository<Tenant>,
-    private dataSource: DataSource,
-  ) {}
+  ) { }
 
   private applyTenantFilter(qb: any, tenantIds: string[], alias = "d") {
-    if (tenantIds && tenantIds.length > 0) {
+    if (tenantIds.length > 0) {
       qb.andWhere(`${alias}.tenant_id IN (:...tenantIds)`, { tenantIds });
     }
     return qb;
   }
 
   async getStats(tenantIds: string[] = []): Promise<DashboardStats> {
-    const hasFilter = tenantIds.length > 0;
+    try {
+      this.logger.log("START::DashboardService::getStats", tenantIds);
+      const hasFilter = tenantIds.length > 0;
 
-    const baseQb = () =>
-      this.applyTenantFilter(
-        this.deviceRepo.createQueryBuilder("d"),
-        tenantIds,
-      );
-
-    const total = await baseQb().getCount();
-    const claimed = await baseQb()
-      .andWhere("d.status = :status", { status: "claimed" })
-      .getCount();
-    const newDevices = await baseQb()
-      .andWhere("d.status = :status", { status: "idle" })
-      .getCount();
-    const rejectedDevices = await baseQb()
-      .andWhere("d.status = :rejStatus", { rejStatus: "rejected" })
-      .getCount();
-
-    // Use raw SQL for authenticated active/inactive counts (avoids TINYINT boolean param issues)
-    const tenantWhere = hasFilter
-      ? `AND tenant_id IN (${tenantIds.map((_, i) => `?`).join(",")})`
-      : "";
-    const [lifeCycleRow] = await this.dataSource.query<
-      { active_count: string; inactive_count: string }[]
-    >(
-      `SELECT
-         SUM(status = 'authenticated' AND is_active = 1 AND deleted_at IS NULL ${tenantWhere}) AS active_count,
-         SUM(status = 'authenticated' AND is_active = 0 AND deleted_at IS NULL ${tenantWhere}) AS inactive_count
-       FROM tb_device`,
-      hasFilter ? [...tenantIds, ...tenantIds] : [],
-    );
-    const activeDevices = Number(lifeCycleRow?.active_count ?? 0);
-    const inactiveDevices = Number(lifeCycleRow?.inactive_count ?? 0);
-
-    // Recent events: filter activities via device or deviceGroup tenant_id
-    const yesterday = new Date();
-    yesterday.setHours(yesterday.getHours() - 24);
-    let actQb = this.activityRepo
-      .createQueryBuilder("activity")
-      .leftJoin("activity.device", "device")
-      .leftJoin("activity.deviceGroup", "deviceGroup")
-      .andWhere("activity.created_at > :yesterday", { yesterday });
-    if (hasFilter) {
-      actQb = actQb.andWhere(
-        "(device.tenant_id IN (:...tenantIds) OR deviceGroup.tenant_id IN (:...tenantIds))",
-        { tenantIds },
-      );
-    }
-    const recentEvents = await actQb.getCount();
-
-    // Auth success rate + failed authentications
-    let logQb = () =>
-      this.logRepo
-        .createQueryBuilder("l")
-        .leftJoin("l.device", "device")
-        .where("l.step = :step", { step: "auth_result" });
-    let totalAuthLogs: number;
-    let successAuthLogs: number;
-    let failedAuthLogs: number;
-    if (hasFilter) {
-      const withTenant = (qb: any) =>
-        qb.andWhere("device.tenant_id IN (:...tenantIds)", { tenantIds });
-      totalAuthLogs = await withTenant(logQb()).getCount();
-      successAuthLogs = await withTenant(
-        logQb().andWhere("l.status = :s", { s: "success" }),
-      ).getCount();
-      failedAuthLogs = await withTenant(
-        logQb().andWhere("l.status = :s", { s: "error" }),
-      ).getCount();
-    } else {
-      totalAuthLogs = await this.logRepo.count({
-        where: { step: "auth_result" },
-      });
-      successAuthLogs = await this.logRepo.count({
-        where: { step: "auth_result", status: "success" },
-      });
-      failedAuthLogs = await this.logRepo.count({
-        where: { step: "auth_result", status: "error" },
-      });
-    }
-    const authSuccessRate =
-      totalAuthLogs > 0 ? (successAuthLogs / totalAuthLogs) * 100 : 0;
-
-    return {
-      total_devices: total,
-      new_devices: newDevices,
-      rejected_devices: rejectedDevices,
-      claimed_devices: claimed,
-      active_devices: activeDevices,
-      inactive_devices: inactiveDevices,
-      failed_authentications: failedAuthLogs,
-      recent_events: recentEvents,
-      auth_success_rate: Math.round(authSuccessRate * 100) / 100,
-    };
-  }
-
-  async getDeviceStatusChart(tenantIds: string[] = []) {
-    const statuses = ["idle", "inprogress", "claimed", "authenticated", "rejected"];
-    const counts = await Promise.all(
-      statuses.map((status) =>
-        this.applyTenantFilter(
-          this.deviceRepo
-            .createQueryBuilder("d")
-            .andWhere("d.status = :status", { status }),
-          tenantIds,
-        ).getCount(),
-      ),
-    );
-    return statuses.map((status, i) => ({ status, count: counts[i] }));
-  }
-
-  async getAuthenticationTrend(days: number = 7, tenantIds: string[] = []) {
-    const hasFilter = tenantIds.length > 0;
-    const result: { date: string; success: number; failed: number }[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const from = new Date();
-      from.setDate(from.getDate() - i);
-      from.setHours(0, 0, 0, 0);
-      const to = new Date(from);
-      to.setHours(23, 59, 59, 999);
-
-      const baseLogQb = () => {
-        const qb = this.logRepo
-          .createQueryBuilder("l")
-          .leftJoin("l.device", "device")
-          .where("l.step = :step", { step: "auth_result" })
-          .andWhere("l.created_at BETWEEN :from AND :to", { from, to });
-        if (hasFilter) {
-          qb.andWhere("device.tenant_id IN (:...tenantIds)", { tenantIds });
-        }
+      const deviceQb = () => {
+        const qb = this.deviceRepo.createQueryBuilder("d");
+        if (hasFilter) qb.where("d.tenant_id IN (:...tenantIds)", { tenantIds });
         return qb;
       };
 
-      const [success, failed] = await Promise.all([
-        baseLogQb()
-          .andWhere("l.status = :status", { status: "success" })
-          .getCount(),
-        baseLogQb()
-          .andWhere("l.status = :status", { status: "error" })
-          .getCount(),
+      const yesterday = new Date();
+      yesterday.setHours(yesterday.getHours() - 24);
+
+      // single query: device status counts + active/inactive breakdown
+      const deviceCountsPromise = deviceQb()
+        .select("d.status", "status")
+        .addSelect("d.is_active", "is_active")
+        .addSelect("COUNT(*)", "cnt")
+        .where("d.deleted_at IS NULL")
+        .groupBy("d.status")
+        .addGroupBy("d.is_active")
+        .getRawMany<{ status: string; is_active: number | boolean; cnt: string }>();
+
+      // single query: auth log counts (total / success / error)
+      const authLogQb = this.logRepo
+        .createQueryBuilder("l")
+        .select("l.status", "status")
+        .addSelect("COUNT(*)", "cnt")
+        .where("l.step = :step", { step: "auth_result" })
+        .groupBy("l.status");
+
+      if (hasFilter) {
+        authLogQb
+          .leftJoin("l.device", "device")
+          .andWhere("device.tenant_id IN (:...tenantIds)", { tenantIds });
+      }
+
+      const authLogCountsPromise = authLogQb.getRawMany<{ status: string; cnt: string }>();
+
+      // recent events
+      const actQb = this.activityRepo
+        .createQueryBuilder("activity")
+        .leftJoin("activity.device", "device")
+        .leftJoin("activity.deviceGroup", "deviceGroup")
+        .where("activity.created_at > :yesterday", { yesterday });
+
+      if (hasFilter) {
+        actQb.andWhere(
+          "(device.tenant_id IN (:...tenantIds) OR deviceGroup.tenant_id IN (:...tenantIds))",
+          { tenantIds },
+        );
+      }
+
+      const [deviceCountRows, authLogRows, recentEvents] = await Promise.all([
+        deviceCountsPromise,
+        authLogCountsPromise,
+        actQb.getCount(),
       ]);
 
-      result.push({ date: from.toISOString().split("T")[0], success, failed });
+      // aggregate device counts
+      let total = 0, claimed = 0, newDevices = 0, rejectedDevices = 0;
+      let activeDevices = 0, inactiveDevices = 0;
+
+      for (const row of deviceCountRows) {
+        const cnt = parseInt(row.cnt, 10);
+        total += cnt;
+        if (row.status === "claimed") claimed += cnt;
+        if (row.status === "idle") newDevices += cnt;
+        if (row.status === "rejected") rejectedDevices += cnt;
+        if (row.status === "authenticated") {
+          const isActive = row.is_active === 1 || row.is_active === true;
+          if (isActive) activeDevices += cnt;
+          else inactiveDevices += cnt;
+        }
+      }
+
+      // aggregate auth log counts
+      let totalAuthLogs = 0, successAuthLogs = 0, failedAuthLogs = 0;
+      for (const row of authLogRows) {
+        const cnt = parseInt(row.cnt, 10);
+        totalAuthLogs += cnt;
+        if (row.status === "success") successAuthLogs = cnt;
+        if (row.status === "error") failedAuthLogs = cnt;
+      }
+
+      const authSuccessRate =
+        totalAuthLogs > 0 ? (successAuthLogs / totalAuthLogs) * 100 : 0;
+
+      this.logger.log("SUCCESS::DashboardService::getStats", tenantIds);
+      return {
+        total_devices: total,
+        new_devices: newDevices,
+        rejected_devices: rejectedDevices,
+        claimed_devices: claimed,
+        active_devices: activeDevices,
+        inactive_devices: inactiveDevices,
+        failed_authentications: failedAuthLogs,
+        recent_events: recentEvents,
+        auth_success_rate: Math.round(authSuccessRate * 100) / 100,
+      };
+    } catch (error) {
+      this.logger.error("ERROR::DashboardService::getStats", error, tenantIds);
+      throw error;
     }
-    return result;
+  }
+
+  async getDeviceStatusChart(tenantIds: string[] = []) {
+    try {
+      this.logger.log("START::DashboardService::getDeviceStatusChart", tenantIds);
+      const statuses = ["idle", "inprogress", "claimed", "authenticated", "rejected"];
+      const rows = await this.applyTenantFilter(
+        this.deviceRepo
+          .createQueryBuilder("d")
+          .select("d.status", "status")
+          .addSelect("COUNT(*)", "count")
+          .where("d.status IN (:...statuses)", { statuses })
+          .groupBy("d.status"),
+        tenantIds,
+      ).getRawMany();
+
+      this.logger.log("SUCCESS::DashboardService::getDeviceStatusChart", tenantIds);
+
+      return statuses.map((status) => ({
+        status,
+        count: parseInt(rows.find((r) => r.status === status)?.count ?? "0", 10),
+      }));
+    } catch (error) {
+      this.logger.error("ERROR::DashboardService::getDeviceStatusChart", error, tenantIds);
+      throw error;
+    }
+  }
+
+  async getAuthenticationTrend(days: number = 7, tenantIds: string[] = []) {
+    try {
+      this.logger.log("START::DashboardService::getAuthenticationTrend", days, tenantIds);
+      const hasFilter = tenantIds.length > 0;
+
+      const from = new Date();
+      from.setDate(from.getDate() - (days - 1));
+      from.setHours(0, 0, 0, 0);
+
+      const to = new Date();
+      to.setHours(23, 59, 59, 999);
+
+      const qb = this.logRepo
+        .createQueryBuilder("l")
+        .select("DATE(l.created_at)", "date")
+        .addSelect("SUM(CASE WHEN l.status = 'success' THEN 1 ELSE 0 END)", "success")
+        .addSelect("SUM(CASE WHEN l.status = 'error' THEN 1 ELSE 0 END)", "failed")
+        .where("l.step = :step", { step: "auth_result" })
+        .andWhere("l.created_at BETWEEN :from AND :to", { from, to })
+        .groupBy("DATE(l.created_at)")
+        .orderBy("DATE(l.created_at)", "ASC");
+
+      if (hasFilter) {
+        qb.leftJoin("l.device", "device").andWhere(
+          "device.tenant_id IN (:...tenantIds)",
+          { tenantIds },
+        );
+      }
+
+      const rows = await qb.getRawMany<{ date: string; success: string; failed: string }>();
+
+      // fill in any days with zero activity so the caller always gets `days` entries
+      const result: { date: string; success: number; failed: number }[] = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split("T")[0];
+        const row = rows.find((r) => r.date === dateStr);
+        result.push({
+          date: dateStr,
+          success: row ? parseInt(row.success, 10) : 0,
+          failed: row ? parseInt(row.failed, 10) : 0,
+        });
+      }
+      this.logger.log("SUCCESS::DashboardService::getAuthenticationTrend", days, tenantIds);
+      return result;
+    } catch (error) {
+      this.logger.error("ERROR::DashboardService::getAuthenticationTrend", error, days, tenantIds);
+      throw error;
+    }
   }
 
   async getRecentDevices(limit: number = 5, tenantIds: string[] = []) {
-    const qb = this.deviceRepo
-      .createQueryBuilder("d")
-      .leftJoinAndSelect("d.deviceGroup", "deviceGroup")
-      .leftJoinAndSelect("d.deviceProfile", "deviceProfile")
-      .orderBy("d.updated_at", "DESC")
-      .take(limit);
+    try {
+      this.logger.log("START::DashboardService::getRecentDevices", limit, tenantIds);
+      const qb = this.deviceRepo
+        .createQueryBuilder("d")
+        .leftJoinAndSelect("d.deviceGroup", "deviceGroup")
+        .leftJoinAndSelect("d.deviceProfile", "deviceProfile")
+        .orderBy("d.updated_at", "DESC")
+        .take(limit);
 
-    if (tenantIds.length > 0) {
-      qb.where("d.tenant_id IN (:...tenantIds)", { tenantIds });
-    }
+      if (tenantIds.length > 0) {
+        qb.where("d.tenant_id IN (:...tenantIds)", { tenantIds });
+      }
 
-    const devices = await qb.getMany();
-    return devices.map((device) => ({
-      device_id: device.device_id,
-      device_name: device.device_name,
-      status: device.status,
-      is_active: device.is_active,
-      created_at: device.created_at,
-      deviceGroup: device.deviceGroup
-        ? { group_name: device.deviceGroup.group_name }
-        : null,
-      deviceProfile: device.deviceProfile
-        ? {
+      const devices = await qb.getMany();
+      this.logger.log("SUCCESS::DashboardService::getRecentDevices", limit, tenantIds);
+      return devices.map((device) => ({
+        device_id: device.device_id,
+        device_name: device.device_name,
+        status: device.status,
+        is_active: device.is_active,
+        created_at: device.created_at,
+        deviceGroup: device.deviceGroup
+          ? { group_name: device.deviceGroup.group_name }
+          : null,
+        deviceProfile: device.deviceProfile
+          ? {
             profile_id: device.deviceProfile.profile_id,
             profile_name: device.deviceProfile.profile_name,
           }
-        : null,
-    }));
+          : null,
+      }));
+    } catch (error) {
+      this.logger.error("ERROR::DashboardService::getRecentDevices", error, limit, tenantIds);
+      throw error;
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { LessThanOrEqual, Repository } from "typeorm";
 import { HttpService } from "@nestjs/axios";
@@ -10,10 +10,12 @@ import { TenantUserCredential } from "../../entities/tenant-user-credential.enti
 import { TenantApiService } from "../tenant-api/tenant-api.service";
 import { SystemActivityService } from "../system-activity/system-activity.service";
 import { MqttService } from "../mqtt/mqtt.service";
+import { DeviceService } from "./device.service";
 
-const TENANT_API_BASE_URL = "https://tenant-api.sandbox.sandgrain.io/api";
+const TENANT_API_BASE_URL = process.env.TENANT_API_BASE_URL || "https://tenant-api.sandbox.sandgrain.io/api";
 const MQTT_RETRY_ATTEMPTS = 2;
 const MQTT_RETRY_DELAY_MS = 3000;
+const WHITELIST_CHUNK_SIZE = 1000;
 
 @Injectable()
 export class DeviceAuthService implements OnModuleInit {
@@ -65,6 +67,8 @@ export class DeviceAuthService implements OnModuleInit {
     private tenantApiService: TenantApiService,
     private systemActivityService: SystemActivityService,
     private mqttService: MqttService,
+    @Inject(forwardRef(() => DeviceService))
+    private deviceService: DeviceService,
   ) { }
 
   onModuleInit(): void {
@@ -85,6 +89,12 @@ export class DeviceAuthService implements OnModuleInit {
     this.mqttService.registerClaimCallback(
       (tid, claimTokenId) => this.handleCloudClaim(tid, claimTokenId).catch(() => { }),
     );
+
+    this.mqttService.registerGatewayStatusCallback(() => {
+      this.publishWhitelist().catch((err) =>
+        this.logger.error(`Failed to publish whitelist: ${err.message}`),
+      );
+    });
 
     // Start periodic lifecycle auth scanner (runs every 10s, near-zero load)
     setInterval(() => this.runLifecycleAuthScan().catch(() => { }), 10_000);
@@ -173,6 +183,30 @@ export class DeviceAuthService implements OnModuleInit {
       );
     }
   }
+
+
+  private async publishWhitelist(): Promise<void> {
+    const tids = await this.deviceService.getEnrolledTids();
+    if (!tids || tids.length === 0) return;
+    this.handleWhiteListInChunk(tids);
+    this.logger.log(`Published whitelist (${tids.length} TIDs) to gw`);
+  }
+
+
+  publishEnrolledTids(tids: string[]): void {
+    if (!tids || tids.length === 0) return;
+    this.handleWhiteListInChunk(tids);
+    this.logger.log(`Published enrolled TIDs (${tids.length} TIDs) to gw`);
+  }
+
+
+  private async handleWhiteListInChunk(tids: string[]): Promise<void> {
+    for (let i = 0; i < tids.length; i += WHITELIST_CHUNK_SIZE) {
+      const chunk = tids.slice(i, i + WHITELIST_CHUNK_SIZE);
+      this.mqttService.publish("sandgrain/v1/gw/whitelist", chunk.join("\n"));
+    }
+  }
+
 
   /**
    * Runs a single lifecycle auth check for an active device.
@@ -1147,15 +1181,16 @@ export class DeviceAuthService implements OnModuleInit {
       return;
     }
 
-    await this.deviceRepo.update(device.device_id, {
-      claim_token_id: claimTokenId,
-      is_approved: true,
-      failed_auth_attempts: 0,
-    });
-    await this.updateDeviceStatus(device.device_id, "claimed");
+
 
     try {
       await this.stepClaimToken(device, claimTokenId, credential, 1);
+      await this.deviceRepo.update(device.device_id, {
+        claim_token_id: claimTokenId,
+        is_approved: true,
+        failed_auth_attempts: 0,
+      });
+      await this.updateDeviceStatus(device.device_id, "claimed");
       this.logger.log(
         `Cloud claim OK: device=${device.device_id} claim_token_id=${claimTokenId}`,
       );

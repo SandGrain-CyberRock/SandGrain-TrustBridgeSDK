@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Patch, UseGuards, Param } from "@nestjs/common";
+import { Controller, Post, Body, Get, Patch, UseGuards, Param, HttpCode } from "@nestjs/common";
 import {
   ApiTags,
   ApiOperation,
@@ -29,7 +29,7 @@ import { InitializeSystemDto } from "./dto/initialize-system.dto";
 @ApiTags("Auth")
 @Controller("auth")
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService) { }
 
   @Public()
   @Post("login")
@@ -55,6 +55,7 @@ export class AuthController {
       "Account is locked due to too many failed attempts or account is inactive",
     type: ErrorResponseDto,
   })
+  @HttpCode(200)
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
   }
@@ -77,6 +78,7 @@ export class AuthController {
     description: "User with this email not found",
     type: NotFoundResponseDto,
   })
+  @HttpCode(200)
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
     return this.authService.forgotPassword(forgotPasswordDto);
   }

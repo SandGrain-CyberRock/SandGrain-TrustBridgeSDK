@@ -20,6 +20,7 @@ import { ForgotPassword } from '../feature/Auth/screens/ForgotPassword';
 import { ResetPassword } from '../feature/Auth/screens/ResetPassword';
 import { RolesAndPermissions } from '../feature/RBAC/screen/RolesAndPermissions';
 import { PERMISSIONS } from '../constant/Permission';
+import { TracingLogs } from '../feature/TracingLogs/screens/TracingLogs';
 
 export const allRoutes: Route[] = [
   {
@@ -167,6 +168,13 @@ export const allRoutes: Route[] = [
         isVisible: true,
 
         element: <AuditLogs />,
+      },
+      {
+        icon: 'clipboardList',
+        name: 'Tracing Logs',
+        route: PAGE_ROUTES.TRACING_LOGS,
+        isVisible: true,
+        element: <TracingLogs />,
       },
     ],
   },

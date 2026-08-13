@@ -2,23 +2,26 @@ import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import { AppModule } from "./app.module";
-import { DataSource } from "typeorm";
 import { ResponseInterceptor } from "./common/interceptors/response.interceptor";
 import { syslogLogger } from "./common/logger/syslog.logger";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
+import { NestExpressApplication } from "@nestjs/platform-express";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: syslogLogger });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: syslogLogger });
   app.useGlobalFilters(new AllExceptionsFilter());
 
+  const corsOrigins = [
+    ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim()) : []),
+    "http://localhost:5173",
+  ];
   // Enable CORS
   app.enableCors({
-    origin: true,
+    origin: [...new Set(corsOrigins)],
     credentials: true,
     methods: "*",
     allowedHeaders: "*",
   });
-
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
@@ -33,6 +36,8 @@ async function bootstrap() {
 
   // API prefix
   app.setGlobalPrefix("api");
+  app.set('trust proxy', 1);
+
 
   // Swagger configuration
   const config = new DocumentBuilder()

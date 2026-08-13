@@ -12,3 +12,7 @@ export const SYSTEM_ACTIVITY_API = {
   BY_DEVICE: '/api/system-activity/by-device',
   BY_DEVICE_GROUP: '/api/system-activity/by-device-group',
 };
+
+export const TRACING_LOGS_API = {
+  GET_ALL: '/api/trace-logs',
+};

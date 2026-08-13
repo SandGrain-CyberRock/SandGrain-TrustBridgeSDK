@@ -21,7 +21,7 @@ export const allDevicesSchema = Yup.object().shape({
   tenant_id: Yup.string()
     .optional()
     .max(100, 'Tenant ID must be at most 100 characters'),
-  profile_id: Yup.string().optional(),
+  profile_id: Yup.string().required('Device Profile is required'),
   batch_no: Yup.string()
     .optional()
     .max(100, 'Batch No must be at most 100 characters'),

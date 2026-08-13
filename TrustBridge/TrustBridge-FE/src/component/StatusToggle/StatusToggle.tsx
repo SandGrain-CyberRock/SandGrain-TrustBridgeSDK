@@ -8,6 +8,7 @@ type StatusToggleProps = {
   onToggle: (params: { id: string; nextStatus: StatusValue }) => void;
   isLoading?: boolean;
   activeColor?: string;
+  isDisabled?: boolean;
 };
 
 export const StatusToggle = ({
@@ -16,6 +17,7 @@ export const StatusToggle = ({
   onToggle,
   isLoading = false,
   activeColor = '#00AEEF',
+  isDisabled = false,
 }: StatusToggleProps) => {
   const isActive = currentStatus === 'ACTIVE';
   const nextStatus: StatusValue = isActive ? 'INACTIVE' : 'ACTIVE';
@@ -31,7 +33,7 @@ export const StatusToggle = ({
           },
         }}
         isChecked={isActive}
-        isDisabled={isLoading}
+        isDisabled={isDisabled || isLoading}
         onChange={() =>
           onToggle({
             id,

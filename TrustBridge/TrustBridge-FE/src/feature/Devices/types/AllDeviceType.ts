@@ -58,7 +58,7 @@ export type DeviceFormValues = {
   token_id: string;
   device_group_id: string;
   tenant_id?: string;
-  profile_id?: string;
+  profile_id: string;
   batch_no?: string;
 };
 

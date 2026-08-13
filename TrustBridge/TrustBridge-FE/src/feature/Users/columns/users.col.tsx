@@ -16,6 +16,7 @@ import { usePermission } from '../../../hooks/usePermission';
 import { PERMISSIONS } from '../../../constant/Permission';
 import { StatusToggle } from '../../../component/StatusToggle/StatusToggle';
 import { useUpdateUser } from '../service/Users';
+import { useInitInfo } from '../../Auth/services/InitInfo.service';
 
 type UseUsersColumnsProps = {
   onDelete?: (user: UsersType) => void;
@@ -34,6 +35,7 @@ export const useUsersColumns = ({
   const { modalOpen } = useModalSearchParams();
   const canUpdate = usePermission(PERMISSIONS.USER_UPDATE);
   const canDelete = usePermission(PERMISSIONS.USER_DELETE);
+  const { data: initInfo } = useInitInfo();
 
   const { mutate, isPending } = useUpdateUser();
   return [
@@ -58,12 +60,14 @@ export const useUsersColumns = ({
       accessorKey: 'user_status',
       cell: ({ row: { original } }) => {
         const locked = isAccountLocked(original.acc_locked_until);
+        const isDisabled = original.user_id === initInfo?.user_id;
         return (
           <VStack align="start" spacing={1}>
             <StatusToggle
               id={original.user_id.toString()}
               currentStatus={original.user_status}
               isLoading={isPending}
+              isDisabled={isDisabled}
               onToggle={({ id, nextStatus }) =>
                 mutate({
                   id,
@@ -138,11 +142,16 @@ export const useUsersColumns = ({
                     Reset Password
                   </MenuItem>
                 )}
-                {canDelete && onDelete && (
-                  <MenuItem color="red.500" onClick={() => onDelete(original)}>
-                    Delete
-                  </MenuItem>
-                )}
+                {canDelete &&
+                  onDelete &&
+                  original.user_id !== initInfo?.user_id && (
+                    <MenuItem
+                      color="red.500"
+                      onClick={() => onDelete(original)}
+                    >
+                      Delete
+                    </MenuItem>
+                  )}
               </MenuList>
             </Menu>
           </div>

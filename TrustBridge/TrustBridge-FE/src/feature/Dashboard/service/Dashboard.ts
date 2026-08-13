@@ -1,8 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { httpClient } from '../../../lib/Axios';
-import { DASHBOARD_API, SYSTEM_ACTIVITY_API } from '../api';
+import { DASHBOARD_API, SYSTEM_ACTIVITY_API, TRACING_LOGS_API } from '../api';
 import type { SuccesRolesResponse } from '../../../lib/types';
-import type { ChartData, SystemActivity } from '../types/DashboardTypes';
+import type {
+  ChartData,
+  FindLogsResult,
+  SystemActivity,
+} from '../types/DashboardTypes';
 
 export const invalidateActivityLog = (
   queryClient: ReturnType<typeof useQueryClient>,
@@ -21,6 +25,14 @@ export interface DashboardStats {
   failed_authentications: number;
   recent_events: number;
   auth_success_rate: number;
+}
+
+// tracing logs
+export interface TracingLogsParams {
+  limit: number;
+  cursor?: number;
+  process_type?: string;
+  status?: string;
 }
 
 // Dashboard Stats
@@ -145,6 +157,22 @@ export const useGetRecentActivities = (params?: RecentActivityParams) => {
   return useQuery({
     queryKey: [SYSTEM_ACTIVITY_API.GET_RECENT, params],
     queryFn: () => getRecentActivities(params),
+    select: ({ data }) => data.data,
+    refetchInterval: (query) => (query.state.error ? false : 10000),
+  });
+};
+
+const getTracingLogs = (params?: TracingLogsParams) => {
+  return httpClient.get<SuccesRolesResponse<FindLogsResult>>(
+    TRACING_LOGS_API.GET_ALL,
+    { params },
+  );
+};
+
+export const useGetTracingLogs = (params?: TracingLogsParams) => {
+  return useQuery({
+    queryKey: [TRACING_LOGS_API.GET_ALL, params],
+    queryFn: () => getTracingLogs(params),
     select: ({ data }) => data.data,
     refetchInterval: (query) => (query.state.error ? false : 10000),
   });

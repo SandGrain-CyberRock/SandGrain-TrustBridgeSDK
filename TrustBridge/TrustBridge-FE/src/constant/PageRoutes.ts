@@ -24,6 +24,7 @@ export const PAGE_ROUTES = {
   AUTH_EVENTS: '/auth-events',
   COMM_EVENTS: '/comm-events',
   AUDIT_LOGS: '/audit-logs',
+  TRACING_LOGS: '/tracing-logs',
   USERS: '/users',
   ROLES_PERMISSIONS: '/roles-and-permissions',
   SETTINGS: '/settings',
