@@ -51,6 +51,7 @@
 #include "crypto.h"
 #include "encoding_hex.h"
 #include "config_poc.h"
+#include "trace_log.h"   /* local traceability log — enabled by TRACE_LOG_PATH */
 
 /* Serializes SDK calls between the menu (main thread) and BE-driven MQTT
  * triggers (mosquitto background thread started by mosquitto_loop_start). */
@@ -516,6 +517,10 @@ int main(int argc, char **argv)
      * menu prints and the streamed flow logs stay trapped in the pipe buffer. */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
+    /* Open the local traceability log (no-op unless TRACE_LOG_PATH is set). The
+     * device id is stamped later, once the SDK reads the chip TID at init. */
+    trace_log_init();
+
     sgr_sdk_status_t status = SGR_SDK_ERROR;
     int option = 0;
 
@@ -567,13 +572,11 @@ int main(int argc, char **argv)
      * gateway link (HELLO + TRIGGER) in a background thread and runs auth on a
      * relayed RUN_AUTH, then falls through so the menu runs in parallel on the
      * main thread. Both paths serialize SDK calls via g_sdk_mutex. */
-    {
-        int listen = (getenv("RUN_MODE") && strcmp(getenv("RUN_MODE"), "listener") == 0);
-        for (int i = 1; i < argc; i++)
-            if (strcmp(argv[i], "--listen") == 0) listen = 1;
-        if (listen)
-            start_listener();   /* failure logs and disables the listener; menu still runs */
-    }
+    int listen = (getenv("RUN_MODE") && strcmp(getenv("RUN_MODE"), "listener") == 0);
+    for (int i = 1; i < argc; i++)
+        if (strcmp(argv[i], "--listen") == 0) listen = 1;
+    if (listen)
+        start_listener();   /* failure logs and disables the listener; menu still runs */
 
     /* ------------------------------------------------------------------
      * Menu loop — run multiple operations in the same session.
@@ -582,7 +585,45 @@ int main(int argc, char **argv)
     while (1)
     {
         print_menu();
-        scanf("%d", &option);
+
+        /* scanf returns the count of items matched: 1 for a valid option, 0 for
+         * non-numeric input, and EOF when stdin is closed / at end-of-input.
+         * IGNORING it makes the menu busy-spin: on EOF `option` keeps its prior
+         * value (0 on the first pass), so the menu + BIST reprint forever. That
+         * happens whenever the device runs without an interactive stdin — e.g. a
+         * headless run_all.sh / tmux pane with no operator typing. Handle both. */
+        int got = scanf("%d", &option);
+        if (got == EOF)
+        {
+            if (listen)
+            {
+                /* BE-driven mode: no operator, but the background trigger listener
+                 * must keep running. Park the main thread on it (do NOT
+                 * stop_listener() — that would tear down the thread we want alive);
+                 * the process ends when it's signalled/killed. */
+                printf("\n[MENU] stdin closed — running headless; TrustBridge triggers stay active (Ctrl-C to quit).\n");
+                fflush(stdout);
+#ifdef WIN32
+                if (g_listener_thread) WaitForSingleObject(g_listener_thread, INFINITE);
+#else
+                if (g_listener_started) pthread_join(g_listener_thread, NULL);
+                else while (g_listener_run) sdk_sleep_ms(200);
+#endif
+            }
+            else
+            {
+                printf("\n  stdin closed — exiting.\n");
+            }
+            break;   /* cleanup runs after the loop */
+        }
+        if (got == 0)
+        {
+            /* Non-numeric token: drain the rest of the line so the same offending
+             * character isn't re-read into an infinite loop on the next pass. */
+            int c; while ((c = getchar()) != '\n' && c != EOF) { }
+            printf("  ✖ Invalid option\n\n");
+            continue;
+        }
         printf("\n");
 
         /* ------------------------------------------------------------------
@@ -593,6 +634,7 @@ int main(int argc, char **argv)
             printf("  Exiting.\n\n");
             stop_listener();
             sdk_mutex_destroy();
+            trace_log_close();
             return 0;
         }
 
@@ -756,5 +798,10 @@ int main(int argc, char **argv)
         printf("=====================================================\n\n");
     }
 
+    /* Reached only via `break` (stdin closed). The interactive exit path
+     * (option 7) cleans up and returns directly inside the loop. */
+    stop_listener();
+    sdk_mutex_destroy();
+    trace_log_close();
     return 0;
 }

@@ -65,7 +65,7 @@ class MQTTTransport:
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
             log.error("Publish failed rc=%s topic=%s", info.rc, topic)
 
-    def _on_disconnect(self, client, userdata, reason_code, properties=None):
+    def _on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties=None):
         log.error("MQTT disconnected reason_code=%s", reason_code)
         
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):

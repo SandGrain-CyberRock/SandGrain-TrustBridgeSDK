@@ -8,6 +8,7 @@
 #include "port_comm.h"
 #include "sdk_sgr_config.h"
 #include "config_poc.h"
+#include "gw_whitelist.h"   /* gw_whitelist_resolve_ip() — gateway self IP */
 
 #include <string.h>
 #include <stdio.h>
@@ -136,6 +137,12 @@ bool port_comm_init(port_comm_ctx_t *ctx, const char *device_id)
 
     mosquitto_lib_init();
 
+    /* Resolve the gateway's own broker-facing IP once, to stamp on each req
+     * envelope as gateway_id (cloud traceability). Winsock is up now that
+     * mosquitto_lib_init() has run (it calls WSAStartup on Windows). Falls back
+     * to "gw" internally on failure. */
+    gw_whitelist_resolve_ip(ctx->gateway_id, sizeof(ctx->gateway_id));
+
     ctx->mosq = mosquitto_new(NULL, true, ctx);  /* pass ctx as userdata */
     if (!ctx->mosq)
         return false;
@@ -221,10 +228,31 @@ bool port_comm_send(port_comm_ctx_t *ctx, const uint8_t *buffer_tx, uint16_t buf
 
     fi_attempt++;
 
-    LOG_DEBUG("TX about to write | topic=%s | size=%u | data=%s",
-              topic, buffer_tx_size, tmp_buffer);
+    /* Stamp the gateway identity onto the outgoing envelope so the cloud trace
+     * can attribute the relaying gateway. Insert "gateway_id":"<ip>", right
+     * after the opening '{' (top-level sibling of "type"/"payload"). The cloud
+     * reads env.gateway_id; a gateway without it just yields null there.
+     * Publish the injected buffer; fall back to the original on any mismatch. */
+    char     out_buffer[576];
+    uint16_t out_len = 0;
+    if (tmp_buffer[0] == '{' && ctx->gateway_id[0] != '\0')
+    {
+        int n = snprintf(out_buffer, sizeof(out_buffer),
+                         "{\"gateway_id\":\"%s\",%s",
+                         ctx->gateway_id, (const char *)tmp_buffer + 1);
+        if (n > 0 && (size_t)n < sizeof(out_buffer))
+            out_len = (uint16_t)n;
+    }
+    if (out_len == 0)   /* not JSON, no id, or would overflow: publish unchanged */
+    {
+        memcpy(out_buffer, tmp_buffer, buffer_tx_size);
+        out_len = buffer_tx_size;
+    }
 
-    int rc = mosquitto_publish(ctx->mosq, NULL, topic, buffer_tx_size, tmp_buffer, 1, false);
+    LOG_DEBUG("TX about to write | topic=%s | size=%u | data=%s",
+              topic, out_len, out_buffer);
+
+    int rc = mosquitto_publish(ctx->mosq, NULL, topic, out_len, out_buffer, 1, false);
 
     switch (rc)
     {

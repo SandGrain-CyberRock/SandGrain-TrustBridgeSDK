@@ -97,3 +97,8 @@ desktop.ini
 # Logs
 *.log
 logs/
+
+# Traceability logs (runtime output of TRACE_LOG_PATH; never commit)
+trace_*.jsonl
+# Host-mounted cloud trace dir (sdk_cloud/docker-compose.yml bind mount)
+PoC_SDK_v3/sdk_cloud/application_PoC_MQTT/trace/

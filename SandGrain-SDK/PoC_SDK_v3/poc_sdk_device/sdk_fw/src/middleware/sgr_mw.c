@@ -31,6 +31,7 @@
 #include "../utils/encoding/encoding_hex.h"
 #include "../utils/bit_flip/bit_flip.h"
 #include "../utils/sha256/sha256.h"
+#include "trace_log.h"   /* local traceability log (app/port) — no-op unless TRACE_LOG_PATH set */
 
 #if SDK_MODE == GATEWAY_MODE
     #include "device_service.h"
@@ -154,6 +155,13 @@ sgr_mw_status_t sgr_mw_init(void)
             mw_initialized = true;
             status         = SGR_MW_OK;
             MW_LOG("SDK ready");
+
+            /* Stamp the traceability log with this device's TID (hex). */
+            {
+                char tid_hex[65];
+                bytes_to_hex(mw_tid, sizeof(mw_tid), tid_hex, sizeof(tid_hex));
+                trace_log_set_device_id(tid_hex);
+            }
         }
         else
         {
@@ -1489,9 +1497,32 @@ void sgr_mw_set_event_callback(sgr_sdk_event_cb_t cb, void *ctx)
     s_event_ctx = ctx;
 }
 
+/* Map an SDK auth event to the traceability spec's event_type + result_code
+ * (section 1) and append one local log line. No-op unless TRACE_LOG_PATH set. */
+static void vgw_trace(sgr_sdk_event_t event)
+{
+    const char *etype  = "EVENT";
+    const char *result = NULL;
+    switch (event)
+    {
+        case SGR_SDK_EVT_AUTH_STARTED:      etype = "CONNECT";            break;
+        case SGR_SDK_EVT_AUTH_REQUEST_SENT: etype = "PUBLISH";            break;
+        case SGR_SDK_EVT_CW_RECEIVED:       etype = "CHALLENGE_RECEIVED"; break;
+        case SGR_SDK_EVT_RW_COMPUTED:       etype = "RESPONSE_COMPUTED";  break;
+        case SGR_SDK_EVT_RW_SENT:           etype = "PUBLISH";            break;
+        case SGR_SDK_EVT_RESULT_RECEIVED:   etype = "RESULT_RECEIVED";    break;
+        case SGR_SDK_EVT_AUTH_COMPLETE:     etype = "AUTH_COMPLETE"; result = "OK";   break;
+        case SGR_SDK_EVT_AUTH_FAILED:       etype = "AUTH_FAILED";   result = "FAIL"; break;
+        case SGR_SDK_EVT_RETRY:             etype = "RETRY";              break;
+        default:                            etype = "EVENT";              break;
+    }
+    trace_log_event(etype, result, NULL, "auth_via_gw");
+}
+
 /* Fire one event to the registered callback (no-op if none registered). */
 static void vgw_emit(sgr_sdk_event_t event)
 {
+    vgw_trace(event);
     if (s_event_cb != NULL)
         s_event_cb(event, s_event_ctx);
 }
@@ -1997,6 +2028,7 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             }
             else
             {
+                trace_log_event("CONNECT", NULL, NULL, "fw_verify");
                 fwv_ctx.step = FWV_STEP_SEND_RESULT;
             }
             status = SGR_MW_BUSY;
@@ -2017,6 +2049,24 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             else
             {
                 MW_LOG("[4/5] Result sent ✔ — waiting for cloud ACK...");
+                if (trace_log_debug_enabled())
+                {
+                    /* Debug level (spec §1 request_data): log the RW data element
+                     * MASKED to first-4 + last-4 — never the raw crypto value. */
+                    char rw_hex[33], rw_masked[24], req[64];
+                    for (int i = 0; i < 16; i++)
+                        snprintf(rw_hex + i * 2, sizeof(rw_hex) - i * 2,
+                                 "%02x", fwv_ctx.rw_computed[i]);
+                    trace_log_mask(rw_hex, rw_masked, sizeof(rw_masked));
+                    snprintf(req, sizeof(req), "{\"rw\":\"%s\"}", rw_masked);
+                    trace_log_event_ex("PUBLISH", fw_ok ? "FW_OK" : "FW_NOK", NULL,
+                                       "fw_verify result sent to gateway", req);
+                }
+                else
+                {
+                    trace_log_event("PUBLISH", fw_ok ? "FW_OK" : "FW_NOK", NULL,
+                                    "fw_verify result sent to gateway");
+                }
                 fwv_ctx.step = FWV_STEP_WAIT_ACK;
             }
             status = SGR_MW_BUSY;
@@ -2042,6 +2092,8 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             else
             {
                 MW_LOG("[5/5] Cloud ACK received: %s ✔", ack_ok ? "ACK_OK" : "ACK_NOK");
+                trace_log_event("RESULT_RECEIVED", ack_ok ? "ACK_OK" : "ACK_NOK",
+                                ack_ok ? "ACK_OK" : "ACK_NOK", "fw_verify cloud ack");
                 if (!ack_ok)
                     fwv_ctx.pending_result = SGR_MW_AUTH_FAILED;
                 fwv_ctx.step = FWV_STEP_CLOSE;
@@ -2189,6 +2241,7 @@ sgr_mw_status_t sgr_mw_installation(void)
             }
             else
             {
+                trace_log_event("PUBLISH", NULL, NULL, "installation request sent to gateway");
                 inst_ctx.step = INST_STEP_RECV;
             }
             status = SGR_MW_BUSY;
@@ -2208,16 +2261,19 @@ sgr_mw_status_t sgr_mw_installation(void)
             if (srv_status == SERVER_OK)
             {
                 MW_LOG("[3/3] Installation authorized ✔");
+                trace_log_event("RESULT_RECEIVED", "INSTALL_OK", "INSTALL_OK", "installation result");
                 inst_ctx.pending_result = SGR_MW_OK;
             }
             else if (srv_status == SERVER_AUTH_FAILED)
             {
                 MW_LOG("[3/3] Installation denied ✖");
+                trace_log_event("RESULT_RECEIVED", "INSTALL_NOK", "INSTALL_NOK", "installation result");
                 inst_ctx.pending_result = SGR_MW_AUTH_FAILED;
             }
             else
             {
                 MW_LOG("[ERROR] Failed to receive installation result (status=%d)", srv_status);
+                trace_log_event("RESULT_RECEIVED", "COMM_ERROR", NULL, "installation result error");
                 inst_ctx.pending_result = SGR_MW_COMM_ERROR;
             }
             inst_ctx.step = INST_STEP_CLOSE;

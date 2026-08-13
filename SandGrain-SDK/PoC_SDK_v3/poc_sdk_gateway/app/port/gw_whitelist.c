@@ -100,6 +100,16 @@ static void resolve_gw_ip(char *out, size_t n)
     freeaddrinfo(res);
 }
 
+/* Public wrapper so other port modules (e.g. port_comm) can stamp the same
+ * gateway identity (its broker-facing IP) that gw_status uses, without each
+ * duplicating the socket resolution. Writes "gw" on any failure. */
+void gw_whitelist_resolve_ip(char *out, size_t n)
+{
+    if (!out || n == 0)
+        return;
+    resolve_gw_ip(out, n);
+}
+
 /* Case-insensitive compare of two 64-hex TIDs (BE and file may differ in case). */
 static int tid_ieq(const char *a, const char *b)
 {

@@ -470,7 +470,16 @@ async def _handle_request_cw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handl
     result = await sdk.request_mutual_auth_cw(tid=tid)
     duration_ms = int((time.monotonic() - t0) * 1000)
 
-    log.info("requestMutualAuthCW ok tid=%s dt_ms=%s", tid, duration_ms)
+    log.info(
+        "requestMutualAuthCW ok tid=%s dt_ms=%s",
+        tid,
+        duration_ms,
+        extra={
+            "dt_ms": duration_ms,
+            "additional_info": {"tid": tid},
+            "request_data": {"TID": tid, "CW": result.cw, "transactionId": result.transaction_id},
+        },
+    )
     return ok({"CW": result.cw, "transactionId": result.transaction_id})
 
 
@@ -685,6 +694,17 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
         auth_status,
         bool(hrw2),
         duration_ms,
+        extra={
+            "dt_ms": duration_ms,
+            "additional_info": {"tid": tid, "auth_status": auth_status, "has_hrw2": bool(hrw2)},
+            "request_data": {
+                "TID": tid,
+                "transactionId": transaction_id,
+                "CW": cw,
+                "RW": rw,
+                "HRW2": hrw2,
+            },
+        },
     )
 
     # Mutual-auth flow: the checkstatus verdict now also carries HRW2 (host-auth

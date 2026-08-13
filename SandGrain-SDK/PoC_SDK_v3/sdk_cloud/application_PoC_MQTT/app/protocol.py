@@ -37,10 +37,13 @@ class Envelope:
     - msg_type: value of "type" in the JSON
     - payload: dict under "payload" (or {} if missing/invalid)
     - crc: dict under "crc" (optional; may be None)
+    - gateway_id: gateway identity the relaying gateway stamps on the envelope
+      (its own IP for now); optional; None for standalone / older gateways.
     """
     msg_type: Any
     payload: Dict[str, Any]
     crc: Optional[Dict[str, Any]]
+    gateway_id: Optional[str] = None
 
 
 def is_valid_action(msg_type: Any, action: str) -> bool:
@@ -96,7 +99,12 @@ def parse_envelope(payload_bytes: bytes) -> Tuple[Optional[Envelope], Optional[D
 
     crc_map = env.get("crc")
 
-    return Envelope(msg_type=msg_type, payload=payload, crc=crc_map), None
+    # Gateway identity (its IP), stamped on the envelope by the relaying gateway.
+    # Accept a couple of spellings; None when absent (standalone / older gw).
+    gateway = env.get("gateway_id") or env.get("gatewayId")
+    gateway_id = str(gateway) if gateway else None
+
+    return Envelope(msg_type=msg_type, payload=payload, crc=crc_map, gateway_id=gateway_id), None
 
 
 def validate_payload_keys(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
