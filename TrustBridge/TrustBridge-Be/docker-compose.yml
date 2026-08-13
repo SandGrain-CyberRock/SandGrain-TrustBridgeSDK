@@ -45,6 +45,29 @@ services:
       - mosquitto_data:/mosquitto/data
     networks: [trustbridge-net]
 
+  redis:
+    image: redis:7-alpine
+    container_name: tb-redis
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+        "--appendonly",
+        "yes",
+      ]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks: [trustbridge-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   be:
     build:
       context: .
@@ -56,14 +79,17 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_started
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
-      # Override host-relative values for the container network
       DB_HOST: mysql
       DB_PORT: 3306
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "${PORT:-3000}:3000"
     volumes:
@@ -75,7 +101,7 @@ volumes:
   mysql_data:
   mosquitto_data:
   be_seed_state:
-
+  redis_data:
 networks:
   trustbridge-net:
     external: true

@@ -5,7 +5,8 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import * as mqtt from "mqtt";
-import { TraceLogService } from "src/common/services/trace-log.service";
+import { TraceLogService } from "src/common/trace-logs/trace-log.service";
+import { CloudLogInput } from "src/common/trace-logs/types";
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -69,6 +70,26 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             );
         },
       );
+
+
+      // Subscribe to auth result notifications from cloud SDK (fault injection flow)
+      this.client.subscribe(
+        "sandgrain/v1/+/cloud_log",
+        { qos: 0 },
+        (err) => {
+          if (err)
+            this.logger.error(
+              `Failed to subscribe to cloud logs: ${err.message}`,
+            );
+          else
+            this.logger.log(
+              "Subscribed to cloud logs: sandgrain/v1/+/cloud_log",
+            );
+        },
+      );
+
+
+
 
       // Subscribe to device presence topic (all devices)
       this.client.subscribe(
@@ -136,9 +157,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.on("message", (topic: string, message: Buffer) => {
+      console.log("message received", topic, message);
+      console.log("message", message.toString());
       // Handle device presence messages
       if (this.isPresenceTopic(topic)) {
         this.handlePresenceMessage(topic, message);
+        return;
+      }
+
+      // Handle cloud log messages
+      if (this.isCloudLogTopic(topic)) {
+        this.handleCloudLogMessage(topic, message);
         return;
       }
 
@@ -472,6 +501,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+
+  private isCloudLogTopic(topic: string): boolean {
+    const parts = topic.split("/");
+    return (
+      parts.length === 4 &&
+      parts[0] === "sandgrain" &&
+      parts[1] === "v1" &&
+      parts[3] === "cloud_log"
+    );
+  }
+
+
   private isAuthResultTopic(topic: string): boolean {
     const parts = topic.split("/");
     return (
@@ -630,7 +671,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       attempt_number: log?.attempt,
     });
 
-    // if (this.onGwLogCb) this.onGwLogCb(tid, log);
+    if (this.onGwLogCb) this.onGwLogCb(tid, log);
   }
 
   private handlePresenceMessage(topic: string, message: Buffer): void {
@@ -698,5 +739,71 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         resolve(payload);
       });
     });
+  }
+
+
+  // cloud log handler
+  private handleCloudLogMessage(topic: string, message: Buffer): void {
+    const parts = topic.split("/");
+    const tid = parts[2].toLowerCase();
+
+    let log: CloudLogInput;
+
+    try {
+      log = JSON.parse(message.toString());
+    } catch {
+      this.logger.warn(`Invalid JSON in cloud_log from TID=${tid}`);
+      return;
+    }
+
+    this.logger.log(
+      `Cloud log: TID=${tid} component=${log.component} action=${log.action} — ${log.message}`,
+    );
+
+    this.traceLogService.log({
+      leaf_id: log.device_id?.toLowerCase() ?? tid,
+      edge_node_id: log.gateway_id ?? null,
+      event_scope: "cloud",
+      app_seq_scope: log.app_seq_scope === "device" ? "leaf" : undefined,
+      app_message_seq: log.app_message_seq ?? undefined,
+      process_type: this.resolveCloudProcessType(log.action),
+      step: `cloud:${log.component ?? "unknown"}:${log.action ?? "log"}`,
+      status: this.resolveCloudLogStatus(log),
+      message: log.message,
+      request_data: log.request_data,
+      response_data: log,
+      duration_ms: log.dt_ms,
+      attempt_number: log.app_message_seq ?? 1,
+    });
+  }
+
+  private resolveCloudProcessType(
+    action?: string,
+  ): "authentication" | "fw_verification" | "installation" {
+    if (!action) return "authentication";
+    const a = action.toLowerCase();
+    if (a.includes("fwverification")) return "fw_verification";
+    if (a.includes("installation")) return "installation";
+    return "authentication"; // requestCW, replyRW, requestRW, etc.
+  }
+
+  private resolveCloudLogStatus(log: {
+    level?: string;
+    http_status?: number;
+  }): string {
+    if (typeof log.http_status === "number") {
+      return log.http_status >= 200 && log.http_status < 300
+        ? "success"
+        : "failed";
+    }
+    switch (log.level?.toUpperCase()) {
+      case "ERROR":
+        return "failed";
+      case "WARN":
+      case "WARNING":
+        return "in_progress";
+      default:
+        return "in_progress";
+    }
   }
 }

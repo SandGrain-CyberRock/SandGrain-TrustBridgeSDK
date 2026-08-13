@@ -71,7 +71,7 @@ export class AuthService {
       return this.userRepo.manager.transaction(async (manager) => {
         const user = await manager.findOne(User, {
           where: { username },
-          relations: ["org"],
+          relations: ["org", "userRoles.role"],
           lock: { mode: "pessimistic_write" },
         });
 
@@ -79,8 +79,17 @@ export class AuthService {
           throw new UnauthorizedException("Invalid credentials");
         }
 
+
         if (user.user_status !== "ACTIVE") {
           throw new UnauthorizedException("Account is inactive");
+        }
+
+        const hasOneActiveRole = user.userRoles?.some(
+          (userRole) => userRole?.role?.status === "ACTIVE",
+        ) ?? false;
+
+        if (!hasOneActiveRole) {
+          throw new UnauthorizedException("No active role found");
         }
 
         if (user.acc_locked_until && user.acc_locked_until > new Date()) {

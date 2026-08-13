@@ -18,9 +18,34 @@ import { ProfileDefaultParamModule } from './modules/profile-default-param/profi
 import { DeviceProfileModule } from './modules/device-profile/device-profile.module';
 import { DiscoverModule } from './modules/discover/discover.module';
 import { JwtAuthGuard } from './common/guards';
-
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
+import { RedisModule } from '@nestjs-modules/ioredis';
+import { TraceLogModule } from './common/trace-logs/trace-log.module';
 @Module({
   imports: [
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: 350,
+      },
+    ]),
+    BullModule.forRoot({
+      connection: {
+        host: process.env.REDIS_HOST,
+        port: parseInt(process.env.REDIS_PORT),
+        password: process.env.REDIS_PASSWORD || undefined,
+      },
+    }),
+    RedisModule.forRoot({
+      type: "single",
+      options: {
+        host: process.env.REDIS_HOST,
+        port: parseInt(process.env.REDIS_PORT),
+        password: process.env.REDIS_PASSWORD || undefined,
+      },
+    }),
     TypeOrmModule.forRoot(dbConfig),
     AuthModule,
     OrganizationModule,
@@ -36,9 +61,14 @@ import { JwtAuthGuard } from './common/guards';
     ProfileDefaultParamModule,
     DeviceProfileModule,
     DiscoverModule,
+    TraceLogModule,
   ],
   controllers: [],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     // Global JWT Auth Guard - all routes protected by default
     {
       provide: APP_GUARD,
