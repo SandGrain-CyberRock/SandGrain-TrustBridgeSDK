@@ -52,14 +52,11 @@ WHITELIST_FILE="$GW_DIR/trustbridge_whitelist.txt"   # static gateway whitelist 
 DO_BUILD=1
 DETECT_TID=1
 RUN_CLOUD=1
-TRACE=1; TRACE_DEBUG=0     # traceability is ON by default (INFO); --debug adds request_data
 for arg in "$@"; do
   case "$arg" in
     --no-build)      DO_BUILD=0 ;;
     --no-detect-tid) DETECT_TID=0 ;;
     --no-cloud)      RUN_CLOUD=0 ;;
-    --info)          TRACE=1 ;;   # INFO is the default; accepted for back-compat
-    --debug)         TRACE=1; TRACE_DEBUG=1 ;;
     -h|--help)
       cat <<'USAGE'
 Usage: bash run_all.sh [--no-build] [--no-detect-tid] [--no-cloud]
@@ -75,13 +72,6 @@ Usage: bash run_all.sh [--no-build] [--no-detect-tid] [--no-cloud]
                    Also runs the DEVICE in --listen mode (BE-driven via
                    cmd/run_auth from the FE/BE) with the interactive menu still
                    available in parallel.
-  --debug          Add DEBUG-level detail to the trace: the masked `request_data`
-                   field on each line (sets TRACE_LOG_DEBUG), ALONGSIDE the info
-                   fields. Local traceability is ON BY DEFAULT at INFO level (sets
-                   TRACE_LOG_PATH): Gateway -> <gw dir>/trace_gateway.jsonl,
-                   Device -> <device dir>/trace_device.jsonl, Cloud -> <app
-                   dir>/trace_cloud.jsonl (one JSON object per line). tail -f any
-                   file to watch.
   -h, --help       Show this help
 
 Opens Cloud (unless --no-cloud), Gateway and Device. The launch method is auto-detected:
@@ -267,22 +257,9 @@ sys.exit(0 if (e.get("username") and e.get("password")) else 1)
 [[ -d "$GW_DIR"     ]] || die "Gateway dir not found: $GW_DIR"
 command -v make    >/dev/null || die "make not found. Run ./setup.sh first (setup.ps1 on Windows)."
 
-# wt.exe can be on PATH yet UNUSABLE: enabling systemd in WSL makes
-# systemd-binfmt skip registration, dropping the WSLInterop handler, so every
-# Windows .exe (incl. wt.exe) fails with "MZ: command not found". Treat wt as
-# available only if Windows-interop is actually registered — otherwise we'd pick
-# "wt" and die at launch instead of falling back to tmux.
-wt_usable() {
-  command -v wt.exe >/dev/null 2>&1 || return 1
-  if grep -qiE "microsoft|wsl" /proc/version 2>/dev/null; then
-    [[ -e /proc/sys/fs/binfmt_misc/WSLInterop ]] || return 1
-  fi
-  return 0
-}
-
 # Decide how we'll open the three components (fail fast if there's no way).
 GUI_TERM=""
-if wt_usable; then
+if command -v wt.exe >/dev/null 2>&1; then
   LAUNCH_MODE="wt"                                   # WSL / Windows
 elif [[ "$(uname -s)" == "Darwin" ]] && command -v osascript >/dev/null 2>&1; then
   LAUNCH_MODE="mac"                                  # macOS Terminal.app
@@ -291,16 +268,7 @@ elif [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && GUI_TERM="$(detect_gui_term)
 elif command -v tmux >/dev/null 2>&1; then
   LAUNCH_MODE="tmux"                                 # headless Linux / SSH (or macOS via brew)
 else
-  die "No way to open the three terminals. Install one of: Windows Terminal (WSL, needs interop), a GUI terminal emulator (Linux desktop), or tmux (headless / macOS)."
-fi
-
-# Explain the non-obvious case: Windows Terminal is present but interop is off,
-# so we fell back. Point the user at the permanent fix (setup.sh installs it).
-if [[ "$LAUNCH_MODE" != "wt" ]] && command -v wt.exe >/dev/null 2>&1 \
-   && grep -qiE "microsoft|wsl" /proc/version 2>/dev/null \
-   && [[ ! -e /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
-  warn "Windows Terminal is installed but WSL Windows-interop is OFF (systemd=true drops the WSLInterop binfmt handler)."
-  warn "Falling back to '$LAUNCH_MODE'. Run ./setup.sh once to register interop permanently and restore windowed launch."
+  die "No way to open the three terminals. Install one of: Windows Terminal (WSL), a GUI terminal emulator (Linux desktop), or tmux (headless / macOS)."
 fi
 say "Launch mode: $LAUNCH_MODE${GUI_TERM:+ ($GUI_TERM)}"
 
@@ -556,15 +524,6 @@ L_CLOUD="/tmp/sgr_launch_cloud.sh"
 L_GW="/tmp/sgr_launch_gw.sh"
 L_DEV="/tmp/sgr_launch_device.sh"
 
-# Optional local traceability for the cloud (--info / --debug): the Python cloud
-# appends one JSON line per event to trace_cloud.jsonl in $APP_DIR (its cwd).
-# Mirrors the gateway/device switches; a no-op unless TRACE_LOG_PATH is set.
-CLOUD_TRACE_ENV=""
-if [[ "$TRACE" == 1 ]]; then
-  CLOUD_TRACE_ENV="TRACE_LOG_PATH='trace_cloud.jsonl' "
-  [[ "$TRACE_DEBUG" == 1 ]] && CLOUD_TRACE_ENV+="TRACE_LOG_DEBUG='1' "
-fi
-
 if [[ "$RUN_CLOUD" == 1 ]]; then
   # Local cloud == STANDALONE: force file-based creds (JsonFileCredentialsStore)
   # and strip BE_URL/TRUSTBRIDGE_BASE_URL so an inherited trustbridge env can't
@@ -574,7 +533,7 @@ if [[ "$RUN_CLOUD" == 1 ]]; then
     "cd '$APP_DIR'" \
     "source '$VENV_DIR/bin/activate'" \
     "set -a; . '$ENV_FILE'; set +a" \
-    "env -u BE_URL -u TRUSTBRIDGE_BASE_URL ${CLOUD_TRACE_ENV}CREDENTIALS_SOURCE=standalone python -m app.main"
+    "env -u BE_URL -u TRUSTBRIDGE_BASE_URL CREDENTIALS_SOURCE=standalone python -m app.main"
 fi
 
 # Pass the chosen broker into the C binaries' environment (config_poc.h reads
@@ -582,25 +541,9 @@ fi
 # broker and the gateway/device talk to whichever cloud agent listens there.
 # BE_URL_VAL was built above from the TrustBridge BE IP/port prompts; it lets the
 # gateway sync its whitelist from the TrustBridge BE (curls BE_URL/devices/whitelist).
-# Optional local traceability (--info / --debug): each C binary appends one JSON line per
-# event to a file in its OWN working dir, so the two processes never share a file
-# (the in-process mutex only guards same-process threads). A relative path also
-# sidesteps native-vs-WSL path-form issues — fopen resolves it against each
-# binary's cwd ($GW_DIR / $DEVICE_DIR).
-GW_TRACE_ENV=""; DEV_TRACE_ENV=""
-if [[ "$TRACE" == 1 ]]; then
-  GW_TRACE_ENV="TRACE_LOG_PATH='trace_gateway.jsonl' "
-  DEV_TRACE_ENV="TRACE_LOG_PATH='trace_device.jsonl' "
-  # DEBUG level rides on top of INFO (same file, same lines) — adds request_data.
-  if [[ "$TRACE_DEBUG" == 1 ]]; then
-    GW_TRACE_ENV+="TRACE_LOG_DEBUG='1' "
-    DEV_TRACE_ENV+="TRACE_LOG_DEBUG='1' "
-  fi
-fi
-
 write_launcher "$L_GW" "SandGrain GATEWAY" \
   "cd '$GW_DIR'" \
-  "${SUDO}env ${GW_TRACE_ENV}MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' MQTT_USER='$MQTT_USERNAME' MQTT_PASS='$MQTT_PASSWORD' BE_URL='$BE_URL_VAL' \$STDBUF ./test_gw 2>&1 | _stamp"
+  "${SUDO}env MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' MQTT_USER='$MQTT_USERNAME' MQTT_PASS='$MQTT_PASSWORD' BE_URL='$BE_URL_VAL' \$STDBUF ./test_gw 2>&1 | _stamp"
 
 # --no-cloud implies BE-driven listen mode (FE/BE triggers via cmd/run_auth);
 # the interactive terminal menu still runs in parallel. Cloud mode (default)
@@ -616,7 +559,7 @@ DEV_LAUNCH_ARGS=""
 # distinct from the MQTT broker host, which may be elsewhere.)
 write_launcher "$L_DEV" "SandGrain DEVICE" \
   "cd '$DEVICE_DIR'" \
-  "${DEV_SUDO}env ${DEV_TRACE_ENV}MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' GW_HOST='127.0.0.1' GW_PORT='8080' \$STDBUF ./test_device${DEV_LAUNCH_ARGS} 2>&1 | _stamp"
+  "${DEV_SUDO}env MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' GW_HOST='127.0.0.1' GW_PORT='8080' \$STDBUF ./test_device${DEV_LAUNCH_ARGS} 2>&1 | _stamp"
 
 # --------------------------------------------------------------------------
 # 6b) Broker sanity (standalone): the local cloud/gateway/device need a NATIVE
@@ -653,9 +596,6 @@ if [[ "$RUN_CLOUD" == 0 ]]; then
   echo "    Device  : $DEVICE_DIR/test_device --listen  (BE-driven + menu; MQTT $MQTT_HOST:$MQTT_PORT)"
 else
   echo "    Device  : $DEVICE_DIR/test_device  (menu; MQTT $MQTT_HOST:$MQTT_PORT)"
-fi
-if [[ "$TRACE" == 1 ]]; then
-  echo "    Trace   : $GW_DIR/trace_gateway.jsonl  +  $DEVICE_DIR/trace_device.jsonl  (JSON lines; tail -f to watch)"
 fi
 
 case "$LAUNCH_MODE" in

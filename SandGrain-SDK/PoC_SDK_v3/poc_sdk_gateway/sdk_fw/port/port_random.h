@@ -6,10 +6,10 @@
  * The SDK calls port_random_bytes() wherever random data is needed.
  * Each platform provides its own implementation:
  *
- *   PC Windows  — BCryptGenRandom (CNG)
- *   PC Linux    — /dev/urandom
- *   MCU STM32   — HAL_RNG_GenerateRandomNumber
- *   MCU nRF     — nrf_drv_rng_rand
+ *   PC Windows  - BCryptGenRandom (CNG)
+ *   PC Linux    - /dev/urandom
+ *   MCU STM32   - HAL_RNG_GenerateRandomNumber
+ *   MCU nRF     - nrf_drv_rng_rand
  *   ...
  *
  * Returns true on success, false on failure.

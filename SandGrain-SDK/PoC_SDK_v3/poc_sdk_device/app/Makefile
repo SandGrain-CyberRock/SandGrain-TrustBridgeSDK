@@ -88,7 +88,6 @@ POC_SRCS := \
     port/port_delay.c \
     port/port_spi_usb.c \
     port/port_random.c \
-    port/trace_log.c \
     fault_injection/fi_device.c
     
 

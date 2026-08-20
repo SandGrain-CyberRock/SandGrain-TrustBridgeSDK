@@ -95,8 +95,7 @@ POC_SRCS := \
     port/port_random.c \
     port/gw_log.c \
     port/gw_whitelist.c \
-    port/gw_presence.c \
-    port/trace_log.c
+    port/gw_presence.c
 
 # ================== BUILD ==================
 INCLUDES := $(addprefix -I,$(INC_DIRS))

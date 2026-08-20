@@ -1,11 +1,11 @@
 /* =============================================================================
  * device_service.h
  *
- * DEVICE↔GW communication service — public interface
+ * DEVICE<->GW communication service - public interface
  *
  * Protocol:
- *   type "4" — auth request (DEVICE→GW) / auth result (GW→DEVICE)
- *   type "5" — CW (GW→DEVICE) / CW echo + RW (DEVICE→GW)
+ *   type "4" - auth request (DEVICE->GW) / auth result (GW->DEVICE)
+ *   type "5" - CW (GW->DEVICE) / CW echo + RW (DEVICE->GW)
  * ============================================================================= */
 
 #ifndef DEVICE_SERVICE_H
@@ -50,50 +50,50 @@ typedef enum {
 /* ===================== API ===================== */
 
 /**
- * Initialize device communication port — bind + listen (GW mode).
+ * Initialize device communication port - bind + listen (GW mode).
  * Must be called once before any other DEVICE_* function.
  */
 device_status_t DEVICE_Init(device_service_ctx_t *ctx, const char *device_id);
 
 /**
  * Read one frame from device and return its type without processing it.
- * The frame is stored internally — the next DEVICE_Receive* call will use it.
+ * The frame is stored internally - the next DEVICE_Receive* call will use it.
  * Returns GW_FRAME_UNKNOWN if no data or unrecognised type.
  */
 gw_frame_type_t DEVICE_PeekFrameType(device_service_ctx_t *ctx);
 
 /**
- * Receive type "4" from device — extracts CRC32.
+ * Receive type "4" from device - extracts CRC32.
  */
 device_status_t DEVICE_ReceiveAuthRequest(device_service_ctx_t *ctx, uint32_t *crc32_out);
 
 /**
- * Send type "5" to device — sends CW.
+ * Send type "5" to device - sends CW.
  */
 device_status_t DEVICE_SendCW(device_service_ctx_t *ctx, const uint8_t *cw);
 
 /**
- * Receive type "5" from device — extracts CW echo + RW.
+ * Receive type "5" from device - extracts CW echo + RW.
  */
 device_status_t DEVICE_ReceiveRW(device_service_ctx_t *ctx, uint8_t *cw_out, uint8_t *rw_out);
 
 /**
- * Send type "4" to device — sends auth result.
+ * Send type "4" to device - sends auth result.
  */
 /* Sends the type-4 verdict to the device. hrw2_hex (NULL/empty to omit) is the
  * host-auth response word from the mutual-auth checkstatus, which the device
- * compares against its own local host-auth — no separate Phase-2 exchange. */
+ * compares against its own local host-auth - no separate Phase-2 exchange. */
 device_status_t DEVICE_SendAuthResult(device_service_ctx_t *ctx, bool auth_ok, const char *hrw2_hex);
 
 /**
- * Send type "4" to device — CLAIM_TOKEN variant.
+ * Send type "4" to device - CLAIM_TOKEN variant.
  * Tells the device the cloud returned CLAIM_TOKEN and forwards the claim_token_id
  * so the device can display / act on it.
  */
 device_status_t DEVICE_SendAuthClaimToken(device_service_ctx_t *ctx, const char *claim_token_id, const char *hrw2_hex);
 
 /**
- * Receive type "6" from device — extracts CRC32, FW verification result and computed RW.
+ * Receive type "6" from device - extracts CRC32, FW verification result and computed RW.
  * crc32_out  : device identifier (used by GW to resolve TID via auth_db).
  * fw_ok_out  : true = FW_OK, false = FW_NOK.
  * rw_out     : RW computed by the device crypto chip (16 bytes).
@@ -104,13 +104,13 @@ device_status_t DEVICE_ReceiveFWVerificationResult(device_service_ctx_t *ctx,
                                                     uint8_t              *rw_out);
 
 /**
- * Send type "6_ack" to device — ACK from cloud confirming FW verification was processed.
+ * Send type "6_ack" to device - ACK from cloud confirming FW verification was processed.
  * ack_ok : true = ACK_OK, false = ACK_NOK.
  */
 device_status_t DEVICE_SendFWVerificationACK(device_service_ctx_t *ctx, bool ack_ok);
 
 /**
- * Receive type "7" from device — extracts CRC32, CW_install (32 bytes), RW_install (16 bytes).
+ * Receive type "7" from device - extracts CRC32, CW_install (32 bytes), RW_install (16 bytes).
  */
 device_status_t DEVICE_ReceiveInstallationRequest(device_service_ctx_t *ctx,
                                                    uint32_t             *crc32_out,
@@ -118,12 +118,12 @@ device_status_t DEVICE_ReceiveInstallationRequest(device_service_ctx_t *ctx,
                                                    uint8_t              *rw_out);
 
 /**
- * Send type "7" to device — installation result (INSTALL_OK / INSTALL_NOK).
+ * Send type "7" to device - installation result (INSTALL_OK / INSTALL_NOK).
  */
 device_status_t DEVICE_SendInstallationResult(device_service_ctx_t *ctx, bool install_ok);
 
 /**
- * Receive type "8" from device — extracts CRC32 + HCW (32 bytes).
+ * Receive type "8" from device - extracts CRC32 + HCW (32 bytes).
  * Phase 2 of mutual auth: device wants the cloud to compute HRW from HCW.
  */
 device_status_t DEVICE_ReceiveHostAuthRequest(device_service_ctx_t *ctx,

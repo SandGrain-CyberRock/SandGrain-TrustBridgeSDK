@@ -1,0 +1,24 @@
+/*
+ * SGT1001 crypto chip on the nRF9151-DK Arduino SPI header (&spi3).
+ *
+ * The board already defines spi3 (arduino_spi) with:
+ *   SCK  = P0.13 (D13)
+ *   MISO = P0.12 (D12)
+ *   MOSI = P0.11 (D11)
+ *   CS[0]= P0.10 (D10)  <- our chip-select (reg = <0>)
+ * The on-board gd25wb256 flash sits on CS[1] (P0.20) and stays disabled, so
+ * there is no conflict. Console is already on uart0 in the board DTS.
+ *
+ * Wire the SGT1001:  SCK->D13  MISO->D12  MOSI->D11  CS->D10  VCC->3V3  GND->GND
+ */
+&spi3 {
+	status = "okay";
+
+	sgt1001: sgt1001@0 {
+		compatible = "zephyr,sgt1001";
+		reg = <0>;                       /* CS[0] = D10 / P0.10 */
+		spi-max-frequency = <1000000>;
+		spi-cs-setup-delay-ns = <1000>;
+		spi-cs-hold-delay-ns = <1000>;
+	};
+};

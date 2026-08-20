@@ -30,7 +30,17 @@ typedef enum
 
     /* Gateway */
     SGR_SDK_NO_DATA,            /* No data available from DEVICE */
-    SGR_SDK_BUSY                /* Dispatcher: no channel has data yet — call again */
+    SGR_SDK_BUSY,               /* Dispatcher: no channel has data yet - call again */
+
+    /* Claim
+     * Appended at the END on purpose: every value above keeps its number, so
+     * this cannot renumber a status any existing caller already compares. */
+    SGR_SDK_CLAIM_TOKEN_READY   /* CR authenticated the chip but no tenant has
+                                 * claimed it yet. NOT a failure and NOT worth
+                                 * retrying - the claim settles on the BE side,
+                                 * after which a fresh auth run gets a verdict.
+                                 * ID in g_sgr_last_claim_token_id. Same name as
+                                 * the device SDK's status for this case. */
 
 } sgr_sdk_status_t;    
 

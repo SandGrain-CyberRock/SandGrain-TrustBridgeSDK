@@ -2,7 +2,7 @@
 #define SGR_CONFIG_H
 
 /* =====================================================================
- * sdk_sgr_config.h — SDK Internal Configuration
+ * sdk_sgr_config.h - SDK Internal Configuration
  *
  * This file must NOT be modified.
  * All parameters are overridable via compiler flags (-DPARAM=value).
@@ -13,7 +13,7 @@
  *   -DCRC_ENABLE=1
  * ===================================================================== */
 
-/* ── SDK mode constants ───────────────────────────────────────────── */
+/* -- SDK mode constants --------------------------------------------- */
 #define DEVICE_MODE     0
 #define GATEWAY_MODE    1
 
@@ -66,7 +66,7 @@
  * fails or Error Management is triggered.
  * CW_BITFLIP_THRESHOLD: applied to CW vs CW echo comparison.
  * RW_BITFLIP_THRESHOLD: applied to RW device vs RW server comparison.
- * Default: 3 — adjust based on channel noise characteristics.
+ * Default: 3 - adjust based on channel noise characteristics.
  * Override via compiler flags (e.g. -DCW_BITFLIP_THRESHOLD=2).
  * ============================================================== */
 #ifndef CW_BITFLIP_THRESHOLD
@@ -92,7 +92,7 @@
 /* ===================== DEBUG CONFIGURATION =====================
  * Set to 1 to enable, 0 to disable per module.
  * Override via compiler flags (e.g. -DMW_DEBUG=0).
- * Default: 1 (enabled — disable explicitly for MCU release builds)
+ * Default: 1 (enabled - disable explicitly for MCU release builds)
  * ============================================================== */
 #ifndef MW_DEBUG
     #define MW_DEBUG                1

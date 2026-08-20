@@ -1,13 +1,13 @@
 /* =============================================================================
  * port_comm_device.h
  *
- * Device communication port — socket implementation.
+ * Device communication port - socket implementation.
  *
  * Each device has its own context (port_comm_device_t) with independent
  * state. Multiple devices can be handled simultaneously without conflicts.
  *
- * GW  — init with "server" → binds, listens, accepts
- * DEV — init with IP       → connects to GW
+ * GW  - init with "server" -> binds, listens, accepts
+ * DEV - init with IP       -> connects to GW
  * ============================================================================= */
 
 #ifndef PORT_COMM_DEVICE_H
@@ -27,13 +27,13 @@
 
 /* ===================== CONTEXT =====================
  * One instance per device connection.
- * All state is self-contained — no shared static variables.
+ * All state is self-contained - no shared static variables.
  * ===================================================== */
 typedef struct {
     sock_t  listen_fd;
     sock_t  conn_fd;
     bool    is_server;
-    char    id[32];        /* channel id ("channel_0", ...) — key for the trigger forwarder */
+    char    id[32];        /* channel id ("channel_0", ...) - key for the trigger forwarder */
     char    tid[65];       /* device TID learned from its HELLO (empty until then)          */
 } port_comm_device_t;
 
@@ -41,8 +41,8 @@ typedef struct {
 
 /**
  * Initialize communication port.
- * device_id = "server" → GW mode (bind, listen, accept)
- * device_id = IP string → DEVICE mode (connect to GW)
+ * device_id = "server" -> GW mode (bind, listen, accept)
+ * device_id = IP string -> DEVICE mode (connect to GW)
  */
 bool port_comm_device_init(port_comm_device_t *ctx, const char *device_id);
 

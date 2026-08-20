@@ -1,0 +1,5 @@
+description: SGT1001 authentication IC on an SPI bus
+
+compatible: "zephyr,sgt1001"
+
+include: [spi-device.yaml]

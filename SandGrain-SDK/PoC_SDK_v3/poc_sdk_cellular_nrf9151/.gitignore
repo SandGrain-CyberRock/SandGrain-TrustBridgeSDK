@@ -1,0 +1,5 @@
+# build + packaging artifacts - build_cellular.ps1 produces the hex (west
+# build) and the shipping zip (out/); neither belongs in git
+merged.hex
+build/
+out/

@@ -1,11 +1,11 @@
 /* =============================================================================
  * sdk_sgr_user_api.c
  *
- * Application Layer — implementation
+ * Application Layer - implementation
  *
  * SDK_MODE controls which functions are compiled:
- *   DEVICE_MODE  — Device authenticates via Gateway
- *   GATEWAY_MODE — Gateway authenticates itself + handles device requests
+ *   DEVICE_MODE  - Device authenticates via Gateway
+ *   GATEWAY_MODE - Gateway authenticates itself + handles device requests
  * ============================================================================= */
 
 #include <string.h>
@@ -208,6 +208,14 @@ sgr_sdk_status_t SGR_SDK_Authentication_Token_To_Server(void)
     {
         sdk_status = SGR_SDK_OK;
     }
+    else if (mw_status == SGR_MW_CLAIM_TOKEN)
+    {
+        /* Distinct from an error on purpose: the chip authenticated, it is just
+         * unclaimed. Collapsing it into SGR_SDK_ERROR makes callers publish a
+         * terminal AUTH_NOK and mark the device Rejected for what is a pending
+         * claim. */
+        sdk_status = SGR_SDK_CLAIM_TOKEN_READY;
+    }
     else
     {
         sdk_status = SGR_SDK_ERROR;
@@ -274,7 +282,7 @@ sgr_sdk_status_t SGR_SDK_GW_Handle_Installation(void)
 {
     sgr_mw_status_t mw_status = SGR_MW_BUSY;
 
-    /* Step 1 — wait for FW Verification result from device (type "6") */
+    /* Step 1 - wait for FW Verification result from device (type "6") */
     do
     {
         mw_status = sgr_mw_gw_receive_fw_verification(0);
@@ -288,7 +296,7 @@ sgr_sdk_status_t SGR_SDK_GW_Handle_Installation(void)
         return SGR_SDK_ERROR;
     }
 
-    /* Step 2 — wait for Installation request from device (type "7") */
+    /* Step 2 - wait for Installation request from device (type "7") */
     mw_status = SGR_MW_BUSY;
     do
     {
@@ -372,3 +380,45 @@ sgr_sdk_status_t SGR_SDK_GW_Run(void)
 }
 
 #endif /* SDK_MODE == GATEWAY_MODE */
+#if SDK_MODE == GATEWAY_MODE && GW_CRYPTO_ENABLED
+
+sgr_sdk_status_t SGR_SDK_Self_Verification_FW(const uint8_t *fw_data,
+                                              uint32_t       fw_size,
+                                              const uint8_t *fw_rw)
+{
+    sgr_mw_status_t mw_status = SGR_MW_BUSY;
+
+    if (!fw_data || fw_size == 0 || !fw_rw)
+        return SGR_SDK_INVALID_PARAM;
+
+    do
+    {
+        mw_status = sgr_mw_self_verify_fw(fw_data, fw_size, fw_rw);
+    }
+    while (mw_status == SGR_MW_BUSY);
+
+    if (mw_status == SGR_MW_OK)           return SGR_SDK_OK;
+    if (mw_status == SGR_MW_AUTH_FAILED)  return SGR_SDK_AUTH_FAILED;
+    if (mw_status == SGR_MW_COMM_ERROR)   return SGR_SDK_COMM_ERROR;
+    if (mw_status == SGR_MW_TOKEN_ERROR)  return SGR_SDK_TOKEN_ERROR;
+    return SGR_SDK_ERROR;
+}
+
+sgr_sdk_status_t SGR_SDK_Self_Installation(void)
+{
+    sgr_mw_status_t mw_status = SGR_MW_BUSY;
+
+    do
+    {
+        mw_status = sgr_mw_self_installation();
+    }
+    while (mw_status == SGR_MW_BUSY);
+
+    if (mw_status == SGR_MW_OK)           return SGR_SDK_OK;
+    if (mw_status == SGR_MW_AUTH_FAILED)  return SGR_SDK_AUTH_FAILED;
+    if (mw_status == SGR_MW_COMM_ERROR)   return SGR_SDK_COMM_ERROR;
+    if (mw_status == SGR_MW_TOKEN_ERROR)  return SGR_SDK_TOKEN_ERROR;
+    return SGR_SDK_ERROR;
+}
+
+#endif /* SDK_MODE == GATEWAY_MODE && GW_CRYPTO_ENABLED */

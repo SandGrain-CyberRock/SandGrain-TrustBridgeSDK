@@ -1,7 +1,7 @@
 /* =============================================================================
  * sgr_mw.h
  *
- * Middleware — unified header for all authentication flows
+ * Middleware - unified header for all authentication flows
  *
  * GATEWAY_MODE:
  *   - sgr_mw_init
@@ -39,10 +39,16 @@ typedef enum {
     SGR_MW_CLAIM_TOKEN    = -9   /* CR returned CLAIM_TOKEN; ID forwarded via DEVICE_SendAuthClaimToken */
 } sgr_mw_status_t;
 
+/* Claim token id from the most recent CLAIM_TOKEN verdict, for the app to show
+ * or forward. Same name and size as the device SDK's, so code that already
+ * reads it there needs no change here. */
+#define SGR_CLAIM_TOKEN_ID_LEN 64
+extern char g_sgr_last_claim_token_id[SGR_CLAIM_TOKEN_ID_LEN];
+
 /* ===================== COMMON ===================== */
 
 /**
- * Initialize middleware — reads TID from crypto chip.
+ * Initialize middleware - reads TID from crypto chip.
  * Must be called once before any other function.
  */
 sgr_mw_status_t sgr_mw_init(void);
@@ -51,18 +57,18 @@ sgr_mw_status_t sgr_mw_init(void);
 #if SDK_MODE == GATEWAY_MODE
 
 /**
- * Phase 1 — GW authenticates itself to Server (Token→Server).
+ * Phase 1 - GW authenticates itself to Server (Token->Server).
  */
 sgr_mw_status_t sgr_mw_authentication_token_to_server(void);
 
 /**
- * Phase 2 — GW authenticates itself to Server (Server→Token).
+ * Phase 2 - GW authenticates itself to Server (Server->Token).
  */
 sgr_mw_status_t sgr_mw_authentication_server_to_token(void);
 
 /**
  * GW handles incoming device authentication request.
- * Orchestrates full DEVICE↔GW↔SERVER flow.
+ * Orchestrates full DEVICE<->GW<->SERVER flow.
  */
 sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx);
 
@@ -110,7 +116,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void);
  * Verify firmware integrity using the crypto chip.
  * Computes SHA-256 of fw_data, uses hash as CW to get RW from chip,
  * compares with fw_rw, and sends result (FW_OK/FW_NOK) to Gateway.
- * Non-blocking FSM — returns SGR_MW_BUSY until done.
+ * Non-blocking FSM - returns SGR_MW_BUSY until done.
  */
 sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
                                    uint32_t       fw_size,
@@ -121,10 +127,33 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
  * Builds CW_install = RW_verify || RW_verify (from previous sgr_mw_verify_fw),
  * gets RW_install from crypto chip, sends type "7" to GW, waits for result.
  * Must be called after a successful sgr_mw_verify_fw.
- * Non-blocking FSM — returns SGR_MW_BUSY until done.
+ * Non-blocking FSM - returns SGR_MW_BUSY until done.
  */
 sgr_mw_status_t sgr_mw_installation(void);
 
 #endif /* SDK_MODE == DEVICE_MODE */
+
+
+#if SDK_MODE == GATEWAY_MODE && GW_CRYPTO_ENABLED
+/*
+ * Self FW verification (device+gateway on one box, e.g. the cellular build).
+ * Device-role compute - SHA-256 over fw_data, RW from the local chip, compared
+ * against fw_rw - followed by the gateway-role bridge frame to the cloud, which
+ * is the only type 6 shape CyberRock accepts.
+ * Non-blocking FSM - returns SGR_MW_BUSY until done.
+ */
+sgr_mw_status_t sgr_mw_self_verify_fw(const uint8_t *fw_data,
+                                      uint32_t       fw_size,
+                                      const uint8_t *fw_rw);
+
+/*
+ * Self installation. Builds CW_install = RW_verify || RW_verify from the last
+ * successful sgr_mw_self_verify_fw, gets RW_install from the chip and asks the
+ * cloud to authorize the install (type 7 bridge frame).
+ * Must be called after a successful sgr_mw_self_verify_fw.
+ * Non-blocking FSM - returns SGR_MW_BUSY until done.
+ */
+sgr_mw_status_t sgr_mw_self_installation(void);
+#endif /* SDK_MODE == GATEWAY_MODE && GW_CRYPTO_ENABLED */
 
 #endif /* SGR_MW_H */

@@ -23,8 +23,6 @@
 #   --menu          interactive menu only (no BE listener)
 #   --sudo          run the binary under sudo (if not in the 'dialout' group)
 #   --no-build      use the existing test_device binary, don't rebuild
-#   (local traceability is ON by default at INFO -> <device dir>/trace_device.jsonl)
-#   --debug         add DEBUG level: masked request_data on each trace line
 #   -h | --help     show this help
 set -euo pipefail
 
@@ -32,18 +30,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 DEV_DIR="$SCRIPT_DIR/PoC_SDK_v3/poc_sdk_device/app"
 ENV_FILE="$SCRIPT_DIR/.env.device"
 
-USB_ARG=""; DO_BUILD=1; USE_SUDO=0; TRACE=1; TRACE_DEBUG=0   # trace ON by default (INFO)
+USB_ARG=""; DO_BUILD=1; USE_SUDO=0
 DEV_ARGS=" --listen"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --usb)         USB_ARG="$2"; shift 2 ;;
-    --menu)        DEV_ARGS=""; shift ;;
-    --sudo)        USE_SUDO=1; shift ;;
-    --no-build)    DO_BUILD=0; shift ;;
-    --info)        TRACE=1; shift ;;
-    --debug)       TRACE=1; TRACE_DEBUG=1; shift ;;
+    --usb)      USB_ARG="$2"; shift 2 ;;
+    --menu)     DEV_ARGS=""; shift ;;
+    --sudo)     USE_SUDO=1; shift ;;
+    --no-build) DO_BUILD=0; shift ;;
     -h|--help)
-      sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      sed -n '2,38p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -165,18 +161,7 @@ trap 'stty sane 2>/dev/null || true' EXIT
 if command -v stdbuf >/dev/null 2>&1; then STDBUF="stdbuf -oL -eL"
 elif command -v gstdbuf >/dev/null 2>&1; then STDBUF="gstdbuf -oL -eL"
 else STDBUF=""; fi
-# Optional local traceability (--info / --debug): the device appends one JSON line per
-# event to trace_device.jsonl in its app dir (we cd'd here above). Injected into
-# the `env` line — NOT a plain export — so it survives --sudo (sudo resets the
-# environment and only keeps the vars listed after `env`).
-TRACE_ENV=""
-if [ "$TRACE" = 1 ]; then
-  TRACE_ENV="TRACE_LOG_PATH=trace_device.jsonl "
-  # DEBUG rides on top of INFO (same file/line) — adds masked request_data.
-  [ "$TRACE_DEBUG" = 1 ] && TRACE_ENV+="TRACE_LOG_DEBUG=1 "
-  say "Traceability ON ($([ "$TRACE_DEBUG" = 1 ] && echo INFO+DEBUG || echo INFO)) -> $DEV_DIR/trace_device.jsonl"
-fi
-${SUDO}env ${TRACE_ENV}\
+${SUDO}env \
   GW_HOST="$GW_HOST"         GW_PORT="$GW_PORT" \
   USB_TTY_PORT="$USB_TTY_PORT" \
   $STDBUF ./test_device${DEV_ARGS} 2>&1 | _stamp

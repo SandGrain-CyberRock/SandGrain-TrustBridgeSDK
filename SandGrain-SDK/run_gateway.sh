@@ -17,8 +17,6 @@
 #
 # Options:
 #   --no-build      use the existing test_gw binary, don't rebuild
-#   (local traceability is ON by default at INFO -> <gw dir>/trace_gateway.jsonl)
-#   --debug         add DEBUG level: masked request_data on each trace line
 #   -h | --help     show this help
 set -euo pipefail
 
@@ -26,14 +24,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 GW_DIR="$SCRIPT_DIR/PoC_SDK_v3/poc_sdk_gateway/app"
 ENV_FILE="$SCRIPT_DIR/.env.gateway"
 
-DO_BUILD=1; TRACE=1; TRACE_DEBUG=0   # trace ON by default (INFO)
+DO_BUILD=1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --no-build)    DO_BUILD=0; shift ;;
-    --info)        TRACE=1;    shift ;;
-    --debug)       TRACE=1; TRACE_DEBUG=1; shift ;;
+    --no-build) DO_BUILD=0; shift ;;
     -h|--help)
-      sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -124,19 +120,7 @@ trap 'stty sane 2>/dev/null || true' EXIT   # restore the terminal on exit
 if command -v stdbuf >/dev/null 2>&1; then STDBUF="stdbuf -oL -eL"
 elif command -v gstdbuf >/dev/null 2>&1; then STDBUF="gstdbuf -oL -eL"
 else STDBUF=""; fi
-# Optional local traceability (--info / --debug): the gateway appends one JSON line per
-# event to trace_gateway.jsonl in its app dir (we cd'd here above, so the relative
-# path resolves here). Injected into the `env` line — NOT a plain export — so it
-# survives even if the launch is later wrapped in sudo (sudo resets the env and
-# only keeps the vars listed after `env`).
-TRACE_ENV=""
-if [ "$TRACE" = 1 ]; then
-  TRACE_ENV="TRACE_LOG_PATH=trace_gateway.jsonl "
-  # DEBUG rides on top of INFO (same file/line) — adds masked request_data.
-  [ "$TRACE_DEBUG" = 1 ] && TRACE_ENV+="TRACE_LOG_DEBUG=1 "
-  say "Traceability ON ($([ "$TRACE_DEBUG" = 1 ] && echo INFO+DEBUG || echo INFO)) -> $GW_DIR/trace_gateway.jsonl"
-fi
-env ${TRACE_ENV}\
+env \
   MQTT_BROKER="$MQTT_BROKER" MQTT_PORT="$MQTT_PORT" \
   MQTT_USER="$MQTT_USER"     MQTT_PASS="$MQTT_PASS" \
   BE_URL="$BE_URL"           GW_BIND_PORT="$GW_BIND_PORT" \

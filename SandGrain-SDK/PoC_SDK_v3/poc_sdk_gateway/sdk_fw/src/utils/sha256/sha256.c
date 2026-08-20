@@ -2,14 +2,14 @@
  * sha256.c
  *
  * Compact SHA-256 implementation (FIPS PUB 180-4).
- * No dynamic allocation — operates entirely on the stack.
+ * No dynamic allocation - operates entirely on the stack.
  * ============================================================================= */
 
 #include "sha256.h"
 #include <string.h>
 
-/* ── Round constants (first 32 bits of fractional parts of cube roots
- *    of the first 64 primes) ─────────────────────────────────────── */
+/* -- Round constants (first 32 bits of fractional parts of cube roots
+ *    of the first 64 primes) --------------------------------------- */
 static const uint32_t K[64] = {
     0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
     0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
@@ -29,14 +29,14 @@ static const uint32_t K[64] = {
     0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
 };
 
-/* ── Initial hash values (first 32 bits of fractional parts of square
- *    roots of the first 8 primes) ───────────────────────────────── */
+/* -- Initial hash values (first 32 bits of fractional parts of square
+ *    roots of the first 8 primes) --------------------------------- */
 static const uint32_t H0[8] = {
     0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
     0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u
 };
 
-/* ── Bitwise operations ──────────────────────────────────────────── */
+/* -- Bitwise operations -------------------------------------------- */
 #define ROTR(x, n)  (((x) >> (n)) | ((x) << (32u - (n))))
 #define SHR(x, n)   ((x) >> (n))
 
@@ -48,7 +48,7 @@ static const uint32_t H0[8] = {
 #define sigma0(x)  (ROTR(x,  7) ^ ROTR(x, 18) ^ SHR( x,  3))
 #define sigma1(x)  (ROTR(x, 17) ^ ROTR(x, 19) ^ SHR( x, 10))
 
-/* ── Process one 512-bit (64-byte) block ────────────────────────── */
+/* -- Process one 512-bit (64-byte) block -------------------------- */
 static void sha256_block(const uint8_t block[64], uint32_t h[8])
 {
     uint32_t w[64];
@@ -125,7 +125,7 @@ void sha256_compute(const uint8_t *data, uint32_t len, uint8_t hash[32])
 
     if (remaining >= 56)
     {
-        /* Not enough room for length — process this block and add a second */
+        /* Not enough room for length - process this block and add a second */
         sha256_block(block, h);
         memset(block, 0, sizeof(block));
     }

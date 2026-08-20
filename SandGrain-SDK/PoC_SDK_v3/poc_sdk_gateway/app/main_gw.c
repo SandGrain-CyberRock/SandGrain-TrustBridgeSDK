@@ -19,7 +19,6 @@
 #include "sdk_sgr_user_api.h"
 #include "crypto.h"
 #include "gw_log.h"
-#include "trace_log.h"     /* local traceability log — enabled by TRACE_LOG_PATH */
 #include "gw_whitelist.h"  /* MQTT-driven whitelist + gateway presence (TrustBridge mode) */
 #include "gw_presence.h"       /* per-device presence + BE trigger proxy (device MQTT-free) */
 #include "port_comm_device.h"  /* port_comm_device_forward_run_auth (the trigger forwarder) */
@@ -192,9 +191,6 @@ int main(void)
     /* Open the MQTT telemetry connection so the BE receives per-step gw_log
      * messages and the terminal auth_result (published from the FSM). */
     gw_log_init();
-
-    /* Open the local traceability log (no-op unless TRACE_LOG_PATH is set). */
-    trace_log_init();
 
     /* TrustBridge mode (BE_URL set): receive the authorized-TID whitelist over
      * MQTT instead of polling the BE's HTTP endpoint. gw_whitelist announces the
