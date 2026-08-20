@@ -1,10 +1,11 @@
-# Compatibility — `release/v3.6.0`
+# Compatibility — `release/v3.6.1`
 
 | Field            | Value |
 | ---------------- | ----- |
-| Versioning branch | `release/v3.6.0` |
-| sandgrain-sdk source | `trustbridge-0.4` |
-| Stream version   | 3.6.0 (TrustBridge integration) |
+| Versioning branch | `release/v3.6.1` |
+| sandgrain-sdk source | `trustbridge-0.4-BLE` |
+| Stream version   | 3.6.1 (TrustBridge integration — BLE transport) |
+| Transport        | Bluetooth LE (device↔gateway); Nordic **nRF54L15** Zephyr device firmware added |
 | TrustBridge BE   | `trustbridge-be` 1.0.0 (upstream `trustbridge-0.4`) |
 | TrustBridge FE   | `trustbridge-fe` (upstream `trustbridge-0.4`) |
 
@@ -44,7 +45,7 @@ Gateway --MQTT gw_log/auth_result--> BE ; Cloud agent <--HTTPS creds-by-TID-- BE
 
 | Aspect | Value |
 | ------ | ----- |
-| Device↔GW transport | TCP socket, port 8080 (`PORT_BASE`) |
+| Device↔GW transport | Bluetooth LE (Nordic UART Service) or TCP socket, port 8080 (`PORT_BASE`); nRF54L15 device firmware links over BLE |
 | Framing | JSON frames `"4"`/`"5"` (auth), `"6"` (FW verification), `"7"` (installation) + Phase-2 mutual auth exchange |
 | Crypto opcodes | `TOKEN_AUTH 0x03000800` (Phase 1), `HOST_AUTH 0x05000800` (Phase 2 + FW flows) |
 | GW↔Cloud topics | `sandgrain/v1/<tid>/req|rsp/{requestCW, replyRW, requestRW, checkAuthStatusCloud, fwVerification, fwInstallation, computeRW, computeFWVerification, computeInstallation}` |
@@ -88,4 +89,4 @@ Python ≥ 3.10) runs.
 
 | SDK stream | Device firmware | Gateway | Cloud SDK | TrustBridge BE | TrustBridge FE |
 | ---------- | --------------- | ------- | --------- | -------------- | -------------- |
-| 3.6.0 | 3.6.0 (this branch) | 3.6.0 (this branch) | sandgrain-cloud-sdk 0.3.0 | trustbridge-be 1.0.0 | trustbridge-fe (trustbridge-0.4) |
+| 3.6.1 BLE | 3.6.1 (Linux `poc_sdk_device` + Nordic nRF54L15 `poc_sdk_device_nrf`) | 3.6.1 (BLE-capable, this branch) | sandgrain-cloud-sdk 0.3.0 | trustbridge-be 1.0.0 | trustbridge-fe (trustbridge-0.4) |

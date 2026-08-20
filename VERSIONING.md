@@ -11,6 +11,10 @@
   **previous versions' history plus what is new** on that line.
 - The **development branch** (`development/vX.Y.0`) is the current working
   branch feeding its release line.
+- The **3.6 line** additionally carries **transport-variant release branches**:
+  `release/v3.6.1` (Bluetooth LE) and `release/v3.6.2` (cellular / LTE) — each a
+  self-contained snapshot mirroring its upstream `trustbridge-0.4-{BLE,LTE}`
+  stream, tagged `v3.6.1` / `v3.6.2`.
 
 What moves the version:
 
@@ -22,16 +26,37 @@ What moves the version:
 
 ## This branch
 
-`release/v3.6.0` — the **main release of the 3.6.x line** (TrustBridge
-integration): the SandGrain auth stack under `SandGrain-SDK/` plus the
-TrustBridge frontend/backend management layer under `TrustBridge/`. Fixes and
-enhancements to 3.6 land on this branch and are published as `v3.6.1`,
-`v3.6.2`, ... tags. The SDK-level integration changes are documented in
-`SandGrain-SDK/changes.md`.
+`release/v3.6.1` — the **BLE-transport variant of the 3.6.x line**: the same
+TrustBridge integration as `release/v3.6.0` (the SandGrain auth stack under
+`SandGrain-SDK/` plus the TrustBridge frontend/backend management layer under
+`TrustBridge/`), but with the device↔gateway link carried over **Bluetooth LE**
+and a Nordic **nRF54L15** Zephyr device firmware added. It mirrors upstream
+`sandgrain-sdk` `trustbridge-0.4-BLE` and is published as the `v3.6.1` tag. The
+SDK-level integration changes are documented in `SandGrain-SDK/changes.md`; the
+BLE walk-throughs are `RUN_BLE_DEMO_nordic-device.md` and
+`RUN_MULTI_BLE_DEMO.md`.
 
 ## Version history
 
-### 3.6.0 — TrustBridge integration (`release/v3.6.0`, this branch)
+### 3.6.1 — BLE transport (`release/v3.6.1`, this branch)
+
+Everything in 3.6.0, re-transported over **Bluetooth LE**:
+
+- Nordic **nRF54L15 DK** Zephyr device firmware
+  (`PoC_SDK_v3/poc_sdk_device_nrf/`): SGT1001 over SPI, BLE Nordic UART Service
+  peripheral, `flash_device.{sh,ps1}`, and a `relay/ble_tcp_relay.py` bridge.
+- BLE port layers for the Linux apps (`poc_sdk_device` `port_comm_ble.c`,
+  `poc_sdk_gateway` `port_comm_device_ble.c`, the `ble_peripheral` NUS tool) and
+  **multi-BLE gateway** support (concurrent BLE devices; PipeWire / scan fixes).
+- Raspberry Pi BLE bring-up helpers (`pi_device_ble_setup.sh`,
+  `pi_ble_gateway_setup.sh`) and demo guides (`poc_sdk_device/BLE_DEVICE.md`,
+  `poc_sdk_gateway/BLE_GATEWAY.md`, `RUN_BLE_DEMO_nordic-device.md`,
+  `RUN_MULTI_BLE_DEMO.md`).
+
+Branches from the shared 3.6 base (upstream `trustbridge-0.4-BLE`); the
+TrustBridge FE/BE management layer is unchanged from `release/v3.6.0`.
+
+### 3.6.0 — TrustBridge integration (`release/v3.6.0`)
 
 Everything in 3.5.x, plus:
 

@@ -1,9 +1,11 @@
-# Sandgrain SDK — `release/v3.6.0`
+# Sandgrain SDK — `release/v3.6.1`
 
 Consolidated Sandgrain / TrustBridge versioning repository.
-This branch mirrors the upstream `sandgrain-sdk` branch **`trustbridge-0.4`** —
-the **TrustBridge integration**, which wraps the SandGrain SDK auth stack in a
-full device-fleet management layer (frontend + backend + broker).
+This branch mirrors the upstream `sandgrain-sdk` branch **`trustbridge-0.4-BLE`** —
+the **BLE-transport variant** of the 3.6 **TrustBridge integration**: the same
+device-fleet management layer (frontend + backend + broker) wrapping the SandGrain
+auth stack, with the device↔gateway link carried over **Bluetooth LE** and a
+Nordic **nRF54L15** Zephyr device firmware added alongside the Linux/Pi apps.
 
 Each branch of this repository is a complete, self-contained snapshot of one
 SDK stream (see [VERSIONING.md](./VERSIONING.md) and
@@ -53,6 +55,15 @@ earlier streams is dropped).
     with error-management bit-flip recovery, `gw_log` telemetry, BE-synced
     whitelist), `sdk_cloud/` (Python `sandgrain_cloud_sdk` 0.3.0 +
     `application_PoC_MQTT` with `TrustBridgeCredentialsStore` and auto-claim).
+  - **BLE transport (this branch):** `PoC_SDK_v3/poc_sdk_device_nrf/` — Nordic
+    **nRF54L15 DK** Zephyr firmware (SGT1001 over SPI, BLE NUS peripheral,
+    `flash_device.{sh,ps1}`, `relay/ble_tcp_relay.py`); BLE port layers for the
+    Linux apps (`poc_sdk_device/app/port/port_comm_ble.c`,
+    `poc_sdk_gateway/app/port/port_comm_device_ble.c`, the `ble_peripheral` NUS
+    tool) and multi-BLE gateway support; Pi setup helpers
+    (`pi_device_ble_setup.sh`, `pi_ble_gateway_setup.sh`). Guides:
+    `poc_sdk_device/BLE_DEVICE.md`, `poc_sdk_gateway/BLE_GATEWAY.md`, and the
+    top-level `RUN_BLE_DEMO_nordic-device.md` / `RUN_MULTI_BLE_DEMO.md`.
 - `TrustBridge/TrustBridge-Be` — **backend** (`trustbridge-be` 1.0.0): NestJS
   10, TypeORM + MySQL, JWT/RBAC, Swagger; modules for devices, device groups
   and profiles, organizations, users/roles/permissions, dashboards, system
