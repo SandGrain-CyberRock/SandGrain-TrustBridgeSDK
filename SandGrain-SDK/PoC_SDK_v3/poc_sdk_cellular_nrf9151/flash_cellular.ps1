@@ -22,6 +22,9 @@
       .\flash_cellular.ps1 -PrebuiltHex .\merged.hex
   which skips the toolchain/build entirely and only needs nrfutil.
 
+  Linux/macOS twin: flash_cellular.sh, same behaviour with dashed flags
+  (--prebuilt-hex, --zip, --monitor, --snr, --build-dir).
+
 .EXAMPLE
   .\flash_cellular.ps1
       Build + flash to a locally attached nRF9151-DK with all defaults.
@@ -228,7 +231,7 @@ if ($Zip) {
     if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
     New-Item -ItemType Directory -Force $staging | Out-Null
     foreach ($item in @('CMakeLists.txt', 'prj.conf', 'boards', 'dts', 'src',
-                        'flash_cellular.ps1', 'README.md')) {
+                        'flash_cellular.ps1', 'flash_cellular.sh', 'README.md')) {
         $src = Join-Path $AppDir $item
         if (Test-Path $src) { Copy-Item -Recurse $src (Join-Path $staging $item) }
     }

@@ -47,12 +47,6 @@ target_sources(app PRIVATE
     ${SDK}/src/utils/crc/crc.c
     ${SDK}/src/utils/sha256/sha256.c
 
-    # --- fault injection (menu options 2 and 3) ---
-    # Shared with the PC device app rather than copied: the bit POSITIONS are
-    # what make a corrupted cellular run and a corrupted PC run look identical
-    # to CyberRock, so they must not drift. The file is plain C (stdint/string
-    # only) and builds under Zephyr unchanged.
-    ${CMAKE_CURRENT_SOURCE_DIR}/../poc_sdk_device/app/fault_injection/fi_device.c
     ${SDK}/src/utils/random/random.c
     ${SDK}/src/utils/bit_flip/bit_flip.c
 )
@@ -69,7 +63,6 @@ target_include_directories(app PRIVATE
     ${SDK}/src/services/database
     ${SDK}/src/utils/crc
     ${SDK}/src/utils/sha256
-    ${CMAKE_CURRENT_SOURCE_DIR}/../poc_sdk_device/app/fault_injection
     ${SDK}/src/utils/encoding
     ${SDK}/src/utils/json
     ${SDK}/src/utils/bit_flip

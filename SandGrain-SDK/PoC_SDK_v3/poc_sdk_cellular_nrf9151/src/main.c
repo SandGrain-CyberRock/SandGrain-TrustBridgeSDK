@@ -13,21 +13,24 @@
  *   0  BIST - read + print TID          (works without network)
  *   1  Mutual authentication with cloud (Phase 1 Token->Server, then
  *                                        Phase 2 Server->Token)
- *   2  Fault injection                  (CW 2 bits, CW echo 1 bit, RW 1 bit)
- *   3  Fault injection, error-management stress
- *   4  FW verification, correct RW      (expect FW_OK, arms option 6)
- *   5  FW verification, wrong RW        (expect FW_NOK)
- *   6  Installation                     (needs a successful 4 first)
+ *   2  FW verification, correct RW      (expect FW_OK, arms option 4)
+ *   3  FW verification, wrong RW        (expect FW_NOK)
+ *   4  Installation                     (needs a successful 2 first)
  *
- * Options 4-6 have no gateway to relay through, so they use the SDK self
+ * Options 2-4 have no gateway to relay through, so they use the SDK self
  * flows: device-role compute on the local chip, gateway-role bridge frames to
  * CyberRock.
  *
- * Options 2 and 3 corrupt the CW / CW echo / RW hex inside the JSON frames on
- * their way through port_comm.c, reusing the PC device app's fi_device module
- * so the bit positions match. Both are EXPECTED to fail Phase 1 - that is the
- * pass condition. The gateway SDK's own bit_flip.c is not used here: its faults
- * are compile-time and sit in the device-relay path this board never runs.
+ * There is deliberately NO fault-injection option here, unlike the PC device
+ * app and the BLE builds. Fault injection exists to exercise the GATEWAY's
+ * Error Management: the gateway keeps the CW it issued, diffs it against the
+ * device's echo, rebuilds candidate CWs and asks CyberRock for each one's RW
+ * until one matches - which is why a corrupted run there still ends AUT_OK.
+ * This board has no gateway relaying for it, and no uncorrupted reference CW
+ * to diff against: the corruption would land in port_comm.c, below the
+ * middleware, so the board could never tell which bits moved. The frames
+ * would simply be rejected by the cloud, which tests nothing the clean run
+ * does not already test.
  * ============================================================================= */
 #include <string.h>
 #include <zephyr/kernel.h>
@@ -39,7 +42,6 @@
 #include "sdk_sgr_user_api.h"
 #include "crypto.h"          /* g_sgr_chip_variant, SGR_CHIP_SGB */
 #include "sha256.h"          /* pre-computing the RW a signer would embed */
-#include "fi_device.h"       /* fault injection flags, menu options 2 and 3 */
 #include "app_mqtt.h"
 #include "gw_log.h"
 #include "sgr_mw.h"          /* g_sgr_last_claim_token_id */
@@ -69,8 +71,6 @@ static const uint8_t test_fw_data[] = {
 /* What the worker thread should run next. */
 enum board_action {
 	ACTION_AUTH = 0,
-	ACTION_AUTH_FI2,
-	ACTION_AUTH_FI3,
 	ACTION_FW_VERIFY_OK,
 	ACTION_FW_VERIFY_NOK,
 	ACTION_INSTALL
@@ -330,11 +330,11 @@ static void run_fw_verification(bool use_valid_rw)
 					  use_valid_rw ? rw_valid : rw_wrong);
 
 	if (st == SGR_SDK_OK) {
-		printk("  >> FW VERIFICATION OK - FW_OK recorded, option 6 is armed\n");
+		printk("  >> FW VERIFICATION OK - FW_OK recorded, option 4 is armed\n");
 		gw_log_publish(g_tid_hex, "fw", "ok",
 			       "FW verification passed - install permission granted", 1);
 	} else if (st == SGR_SDK_AUTH_FAILED) {
-		printk("  >> FW VERIFICATION NOK - FW_NOK recorded (expected for option 5)\n");
+		printk("  >> FW VERIFICATION NOK - FW_NOK recorded (expected for option 3)\n");
 		gw_log_publish(g_tid_hex, "fw", "fail",
 			       "FW verification failed - install permission denied", 1);
 	} else if (st == SGR_SDK_COMM_ERROR) {
@@ -378,59 +378,26 @@ static void run_installation(void)
 		printk("  >> Installation ERROR - crypto chip failed (status=%d)\n", st);
 	} else {
 		printk("  >> Installation ERROR (status=%d)\n", st);
-		printk("     (run option 4 first - the cloud needs a fresh FW_OK record,\n");
+		printk("     (run option 2 first - the cloud needs a fresh FW_OK record,\n");
 		printk("      and that record expires a few minutes after it is made)\n");
 	}
 }
 
-/* Options 2 and 3: arm the fault-injection flags, run a normal mutual auth,
- * then disarm. The flags live in port_comm.c's send/receive path, so anything
- * that runs while they are set gets corrupted - which is why they are cleared
- * unconditionally on the way out, including after a failure. A flag left armed
- * would silently break the next FE-triggered run, and that failure would look
- * like a real one. */
-static void run_auth_with_fi(int option)
-{
-	fi_enable_cw      = 0;
-	fi_enable_cw_echo = 0;
-	fi_enable_rw      = 0;
-	fi_enable_option3 = 0;
-
-	if (option == 2) {
-		fi_enable_cw      = 1;
-		fi_enable_cw_echo = 1;
-		fi_enable_rw      = 1;
-		printk("\n[FI] Option 2 - corrupting CW (2 bits in), "
-		       "CW echo (1 bit out), RW (1 bit out)\n");
-	} else {
-		fi_enable_option3 = 1;
-		printk("\n[FI] Option 3 - error-management stress: "
-		       "CW (1 bit in), CW echo (2 bits out)\n");
-	}
-	printk("     Phase 1 is EXPECTED to fail - that is the pass condition.\n");
-
-	run_mutual_auth();
-
-	fi_enable_cw      = 0;
-	fi_enable_cw_echo = 0;
-	fi_enable_rw      = 0;
-	fi_enable_option3 = 0;
-}
-
 /* Called by app_mqtt.c (MQTT RX thread) on a TrustBridge auth trigger.
- * TrustBridge sends {"mode":N}; modes 2 and 3 select the fault-injection runs,
- * anything else is a normal mutual auth. */
+ * TrustBridge sends {"mode":N}. This build has one auth flow, so every mode
+ * runs it. Modes 2 and 3 - fault injection on the PC and BLE builds - are
+ * called out rather than silently treated as a normal run, so a pass in the
+ * frontend is never mistaken for a fault-injection result. */
 void app_on_run_auth(int mode)
 {
-	enum board_action action = ACTION_AUTH;
-
-	if (mode == 2) {
-		action = ACTION_AUTH_FI2;
-	} else if (mode == 3) {
-		action = ACTION_AUTH_FI3;
+	if (mode == 2 || mode == 3) {
+		printk("[MQTT] Mode %d (fault injection) does not exist on this "
+		       "build - running a normal mutual auth.\n", mode);
+		printk("       Fault injection exercises the gateway's Error "
+		       "Management; this board has no gateway relaying for it.\n");
 	}
 
-	atomic_set(&g_pending_action, action);
+	atomic_set(&g_pending_action, ACTION_AUTH);
 	k_sem_give(&work_sem);
 }
 
@@ -458,12 +425,6 @@ static void worker_thread_fn(void *a, void *b, void *c)
 			continue;   /* a run is already in progress */
 		}
 		switch ((enum board_action)atomic_get(&g_pending_action)) {
-		case ACTION_AUTH_FI2:
-			run_auth_with_fi(2);
-			break;
-		case ACTION_AUTH_FI3:
-			run_auth_with_fi(3);
-			break;
 		case ACTION_FW_VERIFY_OK:
 			run_fw_verification(true);
 			break;
@@ -494,11 +455,9 @@ static void print_menu(void)
 	printk("  Select an option:\n");
 	printk("   0  BIST - read + print TID\n");
 	printk("   1  Mutual Authentication with TrustBridge (over LTE)\n");
-	printk("   2  Fault injection - CW 2 bits, CW echo 1 bit, RW 1 bit\n");
-	printk("   3  Fault injection - error-management stress\n");
-	printk("   4  FW Verification - correct RW (expect FW_OK, arms option 6)\n");
-	printk("   5  FW Verification - wrong RW   (expect FW_NOK)\n");
-	printk("   6  Installation - request install auth (run option 4 first)\n");
+	printk("   2  FW Verification - correct RW (expect FW_OK, arms option 4)\n");
+	printk("   3  FW Verification - wrong RW   (expect FW_NOK)\n");
+	printk("   4  Installation - request install auth (run option 2 first)\n");
 	printk("=====================================================\n");
 	printk("  Option: ");
 }
@@ -571,18 +530,12 @@ int main(void)
 			request_action(ACTION_AUTH);
 			break;
 		case '2':
-			request_action(ACTION_AUTH_FI2);
-			break;
-		case '3':
-			request_action(ACTION_AUTH_FI3);
-			break;
-		case '4':
 			request_action(ACTION_FW_VERIFY_OK);
 			break;
-		case '5':
+		case '3':
 			request_action(ACTION_FW_VERIFY_NOK);
 			break;
-		case '6':
+		case '4':
 			request_action(ACTION_INSTALL);
 			break;
 		default:
