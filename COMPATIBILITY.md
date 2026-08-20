@@ -1,10 +1,11 @@
-# Compatibility — `release/v3.6.0`
+# Compatibility — `release/v3.6.2`
 
 | Field            | Value |
 | ---------------- | ----- |
-| Versioning branch | `release/v3.6.0` |
-| sandgrain-sdk source | `trustbridge-0.4` |
-| Stream version   | 3.6.0 (TrustBridge integration) |
+| Versioning branch | `release/v3.6.2` |
+| sandgrain-sdk source | `trustbridge-0.4-LTE` |
+| Stream version   | 3.6.2 (TrustBridge integration — cellular / LTE transport) |
+| Transport        | Cellular MQTT (LTE-M / NB-IoT) from a Nordic **nRF9151** Zephyr device; Linux/Pi TCP path retained |
 | TrustBridge BE   | `trustbridge-be` 1.0.0 (upstream `trustbridge-0.4`) |
 | TrustBridge FE   | `trustbridge-fe` (upstream `trustbridge-0.4`) |
 
@@ -44,7 +45,7 @@ Gateway --MQTT gw_log/auth_result--> BE ; Cloud agent <--HTTPS creds-by-TID-- BE
 
 | Aspect | Value |
 | ------ | ----- |
-| Device↔GW transport | TCP socket, port 8080 (`PORT_BASE`) |
+| Device↔GW transport | Linux/Pi device: TCP socket, port 8080 (`PORT_BASE`). nRF9151 cellular device: MQTT over the LTE modem directly to the broker (no local gateway hop) |
 | Framing | JSON frames `"4"`/`"5"` (auth), `"6"` (FW verification), `"7"` (installation) + Phase-2 mutual auth exchange |
 | Crypto opcodes | `TOKEN_AUTH 0x03000800` (Phase 1), `HOST_AUTH 0x05000800` (Phase 2 + FW flows) |
 | GW↔Cloud topics | `sandgrain/v1/<tid>/req|rsp/{requestCW, replyRW, requestRW, checkAuthStatusCloud, fwVerification, fwInstallation, computeRW, computeFWVerification, computeInstallation}` |
@@ -88,4 +89,4 @@ Python ≥ 3.10) runs.
 
 | SDK stream | Device firmware | Gateway | Cloud SDK | TrustBridge BE | TrustBridge FE |
 | ---------- | --------------- | ------- | --------- | -------------- | -------------- |
-| 3.6.0 | 3.6.0 (this branch) | 3.6.0 (this branch) | sandgrain-cloud-sdk 0.3.0 | trustbridge-be 1.0.0 | trustbridge-fe (trustbridge-0.4) |
+| 3.6.2 LTE | 3.6.2 (Linux `poc_sdk_device` + Nordic nRF9151 `poc_sdk_cellular_nrf9151`) | 3.6.2 (this branch) | sandgrain-cloud-sdk 0.3.0 | trustbridge-be 1.0.0 | trustbridge-fe (trustbridge-0.4) |

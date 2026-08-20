@@ -11,6 +11,10 @@
   **previous versions' history plus what is new** on that line.
 - The **development branch** (`development/vX.Y.0`) is the current working
   branch feeding its release line.
+- The **3.6 line** additionally carries **transport-variant release branches**:
+  `release/v3.6.1` (Bluetooth LE) and `release/v3.6.2` (cellular / LTE) — each a
+  self-contained snapshot mirroring its upstream `trustbridge-0.4-{BLE,LTE}`
+  stream, tagged `v3.6.1` / `v3.6.2`.
 
 What moves the version:
 
@@ -22,16 +26,33 @@ What moves the version:
 
 ## This branch
 
-`release/v3.6.0` — the **main release of the 3.6.x line** (TrustBridge
-integration): the SandGrain auth stack under `SandGrain-SDK/` plus the
-TrustBridge frontend/backend management layer under `TrustBridge/`. Fixes and
-enhancements to 3.6 land on this branch and are published as `v3.6.1`,
-`v3.6.2`, ... tags. The SDK-level integration changes are documented in
-`SandGrain-SDK/changes.md`.
+`release/v3.6.2` — the **cellular / LTE-transport variant of the 3.6.x line**:
+the same TrustBridge integration as `release/v3.6.0` (the SandGrain auth stack
+under `SandGrain-SDK/` plus the TrustBridge frontend/backend management layer
+under `TrustBridge/`), with a Nordic **nRF9151** Zephyr device that reaches the
+broker directly over **cellular (LTE-M / NB-IoT)** MQTT. It mirrors upstream
+`sandgrain-sdk` `trustbridge-0.4-LTE` and is published as the `v3.6.2` tag. The
+SDK-level integration changes are documented in `SandGrain-SDK/changes.md`; the
+cellular walk-through is `RUN_CELLULAR_DEMO.md`.
 
 ## Version history
 
-### 3.6.0 — TrustBridge integration (`release/v3.6.0`, this branch)
+### 3.6.2 — Cellular / LTE transport (`release/v3.6.2`, this branch)
+
+Everything in 3.6.0, re-transported over **cellular (LTE-M / NB-IoT)**:
+
+- Nordic **nRF9151 DK** Zephyr cellular firmware
+  (`PoC_SDK_v3/poc_sdk_cellular_nrf9151/`): SGT1001 over SPI; MQTT carried over
+  the LTE modem straight to the broker (`src/ports/app_mqtt.c`, no local gateway
+  hop); a `gw_log` telemetry port; `flash_cellular.ps1`.
+- On-device **UART menu**: fault injection, firmware verification and
+  installation flows driven from the serial console.
+- Cellular bring-up guide `RUN_CELLULAR_DEMO.md`.
+
+Branches from the shared 3.6 base (upstream `trustbridge-0.4-LTE`); the
+TrustBridge FE/BE management layer is unchanged from `release/v3.6.0`.
+
+### 3.6.0 — TrustBridge integration (`release/v3.6.0`)
 
 Everything in 3.5.x, plus:
 

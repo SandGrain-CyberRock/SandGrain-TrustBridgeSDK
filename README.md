@@ -1,9 +1,11 @@
-# Sandgrain SDK — `release/v3.6.0`
+# Sandgrain SDK — `release/v3.6.2`
 
 Consolidated Sandgrain / TrustBridge versioning repository.
-This branch mirrors the upstream `sandgrain-sdk` branch **`trustbridge-0.4`** —
-the **TrustBridge integration**, which wraps the SandGrain SDK auth stack in a
-full device-fleet management layer (frontend + backend + broker).
+This branch mirrors the upstream `sandgrain-sdk` branch **`trustbridge-0.4-LTE`** —
+the **cellular / LTE-transport variant** of the 3.6 **TrustBridge integration**:
+the same device-fleet management layer (frontend + backend + broker) wrapping the
+SandGrain auth stack, with a Nordic **nRF9151** Zephyr device that reaches the
+broker directly over **cellular (LTE-M/NB-IoT)** MQTT.
 
 Each branch of this repository is a complete, self-contained snapshot of one
 SDK stream (see [VERSIONING.md](./VERSIONING.md) and
@@ -53,6 +55,12 @@ earlier streams is dropped).
     with error-management bit-flip recovery, `gw_log` telemetry, BE-synced
     whitelist), `sdk_cloud/` (Python `sandgrain_cloud_sdk` 0.3.0 +
     `application_PoC_MQTT` with `TrustBridgeCredentialsStore` and auto-claim).
+  - **Cellular / LTE transport (this branch):**
+    `PoC_SDK_v3/poc_sdk_cellular_nrf9151/` — Nordic **nRF9151 DK** Zephyr
+    firmware (SGT1001 over SPI; MQTT carried over the LTE modem via
+    `src/ports/app_mqtt.c`; `gw_log` telemetry port; `flash_cellular.ps1`) with
+    an on-device **UART menu** (fault injection, FW verification, install).
+    Walk-through: top-level `RUN_CELLULAR_DEMO.md`.
 - `TrustBridge/TrustBridge-Be` — **backend** (`trustbridge-be` 1.0.0): NestJS
   10, TypeORM + MySQL, JWT/RBAC, Swagger; modules for devices, device groups
   and profiles, organizations, users/roles/permissions, dashboards, system
