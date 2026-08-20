@@ -101,15 +101,8 @@ class CyberRockClient:
         if extra_headers:
             headers.update(extra_headers)
 
-        # Safe logging (masked). The `extra=` fields feed the JSONL traceability
-        # sink (trace_log): http_method / url / path per V4 section 3, plus the
-        # request body as request_data (the trace layer masks rw/ek/etc.).
-        log.info(
-            "HTTP %s %s",
-            method,
-            url,
-            extra={"http_method": method, "url": url, "path": path, "request_data": json_body},
-        )
+        # Safe logging (masked)
+        log.info("HTTP %s %s", method, url)
         log.debug("Request headers=%s", _mask_headers(headers))
         log.debug("Request json=%s", _mask_json(json_body))
 
@@ -131,13 +124,7 @@ class CyberRockClient:
                 )
 
             text = await resp.text()
-            log.info(
-                "HTTP status=%s for %s %s",
-                resp.status,
-                method,
-                path,
-                extra={"http_method": method, "path": path, "http_status": resp.status},
-            )
+            log.info("HTTP status=%s for %s %s", resp.status, method, path)
             log.debug("Raw response body=%s", text)
 
             try:

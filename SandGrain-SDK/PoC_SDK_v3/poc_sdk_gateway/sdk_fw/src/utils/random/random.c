@@ -1,7 +1,7 @@
 /* =============================================================================
  * random.c
  *
- * Random byte generation — delegates to port_random_bytes().
+ * Random byte generation - delegates to port_random_bytes().
  *
  * The implementation is platform-specific and lives in the port layer.
  * ============================================================================= */

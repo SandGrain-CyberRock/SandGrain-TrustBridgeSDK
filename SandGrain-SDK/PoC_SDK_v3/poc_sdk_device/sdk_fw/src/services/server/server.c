@@ -1,12 +1,12 @@
 /* =============================================================================
  * server.c
  *
- * SERVER Service — implementation
+ * SERVER Service - implementation
  *
  * GATEWAY_MODE: full SERVER communication (types 0,1,2,3)
  * DEVICE_MODE:  GW communication (types 4,5)
  *
- * All state lives in server_ctx_t — no static variables.
+ * All state lives in server_ctx_t - no static variables.
  * ============================================================================= */
 
 #include "server.h"
@@ -22,7 +22,7 @@
 #define SERVER_TX_BUF_SIZE 512
 
 /* =============================================================================
- * Transport interface — registered by the application via SGR_SDK_SetCommInterface().
+ * Transport interface - registered by the application via SGR_SDK_SetCommInterface().
  *
  * All frame I/O goes through these callbacks instead of a hard-wired port layer.
  * The wrappers below adapt the interface to the boolean semantics the SERVER_*
@@ -38,12 +38,12 @@ void SERVER_SetCommInterface(const sgr_sdk_comm_interface_t *iface)
         s_comm_set = false;
         return;
     }
-    s_comm     = *iface;          /* shallow copy — caller owns ctx */
+    s_comm     = *iface;          /* shallow copy - caller owns ctx */
     s_comm_set = true;
 }
 
 /* Open the connection. Returns true on success (or true if no open callback was
- * supplied — the transport is assumed already open). */
+ * supplied - the transport is assumed already open). */
 static bool comm_open(const char *device_id)
 {
     if (!s_comm_set)
@@ -148,7 +148,7 @@ server_status_t SERVER_Close(server_ctx_t *ctx)
 }
 
 /* =============================================================================
- * GATEWAY MODE — types 0, 1, 2, 3
+ * GATEWAY MODE - types 0, 1, 2, 3
  * ============================================================================= */
 #if SDK_MODE == GATEWAY_MODE
 
@@ -282,12 +282,12 @@ server_status_t SERVER_GetRW_Send(server_ctx_t *ctx, const uint8_t *tid, const u
 
     if (bytes_to_hex(tid, 32, proto.tid_hex, sizeof(proto.tid_hex)) != 0)
     {
-        printf("[DEBUG] SERVER_GetRW_Send — bytes_to_hex tid FAILED\n");
+        printf("[DEBUG] SERVER_GetRW_Send - bytes_to_hex tid FAILED\n");
         status = SERVER_ERROR;
     }
     else if (bytes_to_hex(cw, 32, proto.cw_hex, sizeof(proto.cw_hex)) != 0)
     {
-        printf("[DEBUG] SERVER_GetRW_Send — bytes_to_hex cw FAILED\n");
+        printf("[DEBUG] SERVER_GetRW_Send - bytes_to_hex cw FAILED\n");
         status = SERVER_ERROR;
     }
     else
@@ -295,7 +295,7 @@ server_status_t SERVER_GetRW_Send(server_ctx_t *ctx, const uint8_t *tid, const u
         prv_apply_crc(&proto, true, false);
         frame_len = Frame_Get_RW_From_Server((char *)tx_buf, sizeof(tx_buf), &proto);
 
-        printf("[DEBUG] SERVER_GetRW_Send — frame_len=%d\n", frame_len);
+        printf("[DEBUG] SERVER_GetRW_Send - frame_len=%d\n", frame_len);
 
         if (frame_len <= 0)
             status = SERVER_ERROR;
@@ -367,7 +367,7 @@ server_status_t SERVER_Auth_Result_Send(server_ctx_t *ctx, const uint8_t *tid, c
 
 /* =============================================================================
  * SERVER_SendFWVerificationBridge  (GATEWAY_MODE)
- * GW bridge: forwards device FW verification result to server — type "6"
+ * GW bridge: forwards device FW verification result to server - type "6"
  * Frame: {"type":"6","payload":{"TID":"<tid_hex>","FW_VERIFY":"FW_OK/FW_NOK"}}
  * ============================================================================= */
 server_status_t SERVER_SendFWVerificationBridge(server_ctx_t   *ctx,
@@ -402,7 +402,7 @@ server_status_t SERVER_SendFWVerificationBridge(server_ctx_t   *ctx,
         status = SERVER_OK;
 
     #if PORT_COMM_DEBUG
-    printf("[SERVER] FW verification bridged to server — TID: %.8s..., result: %s, RW: %.8s...\n",
+    printf("[SERVER] FW verification bridged to server - TID: %.8s..., result: %s, RW: %.8s...\n",
            tid_hex, fw_ok ? "FW_OK" : "FW_NOK", rw_hex);
     #endif
 
@@ -411,7 +411,7 @@ server_status_t SERVER_SendFWVerificationBridge(server_ctx_t   *ctx,
 
 /* =============================================================================
  * SERVER_SendInstallationBridge  (GATEWAY_MODE)
- * GW bridge: forwards device installation request to Cloud SDK — type "7"
+ * GW bridge: forwards device installation request to Cloud SDK - type "7"
  * Frame: {"type":"7","payload":{"TID":"<tid_hex>","CW":"<64 hex>","RW":"<32 hex>"}}
  * ============================================================================= */
 server_status_t SERVER_SendInstallationBridge(server_ctx_t  *ctx,
@@ -452,7 +452,7 @@ server_status_t SERVER_SendInstallationBridge(server_ctx_t  *ctx,
 
 /* =============================================================================
  * SERVER_ReceiveInstallationBridgeResult  (GATEWAY_MODE)
- * Receive Cloud SDK installation result — type "7" response
+ * Receive Cloud SDK installation result - type "7" response
  * Server format: {"type":"7","status":{"code":0,"result":"OK"},"payload":{"FW_INSTALLATION":"OK",...}}
  * ============================================================================= */
 server_status_t SERVER_ReceiveInstallationBridgeResult(server_ctx_t *ctx, bool *install_ok_out)
@@ -491,7 +491,7 @@ server_status_t SERVER_ReceiveInstallationBridgeResult(server_ctx_t *ctx, bool *
 #endif /* SDK_MODE == GATEWAY_MODE */
 
 /* =============================================================================
- * DEVICE MODE — types 4, 5
+ * DEVICE MODE - types 4, 5
  * ============================================================================= */
 #if SDK_MODE == DEVICE_MODE
 
@@ -532,7 +532,7 @@ server_status_t SERVER_SendAuthRequest(server_ctx_t *ctx, const uint8_t *tid)
     }
 
     #if PORT_COMM_DEBUG
-    printf("[SERVER] Auth request — CRC32: 0x%08X\n", crc32);
+    printf("[SERVER] Auth request - CRC32: 0x%08X\n", crc32);
     #endif
 
     return status;
@@ -628,7 +628,7 @@ server_status_t SERVER_ReceiveAuthResult(server_ctx_t *ctx, bool *auth_ok_out)
         ctx->rx_buf[ctx->rx_len] = '\0';
 
         /* Parse HRW2 (host-auth response word) if the mutual-auth verdict carried
-         * it, so the device can verify host-auth locally against it. 32 hex → 16
+         * it, so the device can verify host-auth locally against it. 32 hex -> 16
          * bytes. Reset per frame; consumers check have_hrw2. */
         ctx->have_hrw2 = false;
         {
@@ -703,7 +703,7 @@ server_status_t SERVER_SendFWVerificationResult(server_ctx_t  *ctx,
     if (!ctx || !tid || !rw)
         return SERVER_ERROR;
 
-    /* Compute CRC32 from TID — same method as SERVER_SendAuthRequest */
+    /* Compute CRC32 from TID - same method as SERVER_SendAuthRequest */
     if (bytes_to_hex(tid, 32, tid_hex, sizeof(tid_hex)) != 0)
         return SERVER_ERROR;
 
@@ -727,7 +727,7 @@ server_status_t SERVER_SendFWVerificationResult(server_ctx_t  *ctx,
         status = SERVER_OK;
 
     #if PORT_COMM_DEBUG
-    printf("[SERVER] FW verification result sent — CRC32: 0x%08X, result: %s, RW: %.8s...\n",
+    printf("[SERVER] FW verification result sent - CRC32: 0x%08X, result: %s, RW: %.8s...\n",
            crc32, fw_ok ? "FW_OK" : "FW_NOK", rw_hex);
     #endif
 
@@ -896,8 +896,8 @@ server_status_t SERVER_ReceiveHRW(server_ctx_t *ctx, uint8_t *hrw_out)
  * SERVER_ReceiveFWVerificationACK  (DEVICE_MODE + GATEWAY_MODE)
  *
  * Handles two response formats:
- *   Format A — GW→Device : {"type":"6_ack","payload":{"status":"ACK_OK/ACK_NOK"}}
- *   Format B — Server→GW : {"type":"6","status":{"code":0,"result":"OK"},...}
+ *   Format A - GW->Device : {"type":"6_ack","payload":{"status":"ACK_OK/ACK_NOK"}}
+ *   Format B - Server->GW : {"type":"6","status":{"code":0,"result":"OK"},...}
  * ============================================================================= */
 server_status_t SERVER_ReceiveFWVerificationACK(server_ctx_t *ctx, bool *ack_ok_out)
 {
@@ -917,7 +917,7 @@ server_status_t SERVER_ReceiveFWVerificationACK(server_ctx_t *ctx, bool *ack_ok_
 
     if (strstr((char *)rx_buf, "\"type\":\"6_ack\"") != NULL)
     {
-        /* Format A — GW→Device */
+        /* Format A - GW->Device */
         char *ptr = strstr((char *)rx_buf, "\"status\":\"");
         if (ptr == NULL)
             return SERVER_PARSE_ERROR;
@@ -926,7 +926,7 @@ server_status_t SERVER_ReceiveFWVerificationACK(server_ctx_t *ctx, bool *ack_ok_
     }
     else if (strstr((char *)rx_buf, "\"type\":\"6\"") != NULL)
     {
-        /* Format B — Server→GW */
+        /* Format B - Server->GW */
         char *ptr = strstr((char *)rx_buf, "\"result\":\"");
         if (ptr == NULL)
             return SERVER_PARSE_ERROR;
@@ -939,7 +939,7 @@ server_status_t SERVER_ReceiveFWVerificationACK(server_ctx_t *ctx, bool *ack_ok_
     }
 
     #if PORT_COMM_DEBUG
-    printf("[SERVER] FW verification ACK received — status: %s\n",
+    printf("[SERVER] FW verification ACK received - status: %s\n",
            *ack_ok_out ? "ACK_OK" : "ACK_NOK");
     #endif
 

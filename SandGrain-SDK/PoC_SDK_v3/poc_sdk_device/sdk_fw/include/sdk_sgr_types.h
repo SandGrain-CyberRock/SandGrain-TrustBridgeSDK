@@ -14,12 +14,12 @@
  * it with any transport (MQTT, TCP socket, UART, SPI, BLE, LoRa, ...).
  *
  * Return conventions:
- *   open    :  0 on success, <0 on error.            (optional — may be NULL)
+ *   open    :  0 on success, <0 on error.            (optional - may be NULL)
  *   send    :  0 on success, <0 on error.
  *   receive :  0 = a frame was received (out_len > 0),
  *              1 = no data available yet (out_len set to 0),
  *             <0 = communication error.
- *   close   :  no return value.                       (optional — may be NULL)
+ *   close   :  no return value.                       (optional - may be NULL)
  *
  * ctx is an opaque pointer owned by the caller (e.g. their socket/UART handle);
  * it is passed unchanged to every callback.
@@ -27,7 +27,7 @@
 typedef struct {
     /* Open / establish the connection. device_id is the device TID in hex
      * (used by addressed transports such as MQTT for topic routing; transports
-     * with no addressing — e.g. UART — may ignore it). Optional: leave NULL if
+     * with no addressing - e.g. UART - may ignore it). Optional: leave NULL if
      * the transport is opened by the application before registration. */
     int  (*open)   (const char *device_id, void *ctx);
 
@@ -53,7 +53,7 @@ typedef struct {
  *
  * The callback is invoked SYNCHRONOUSLY from within the authentication state
  * machine (during _Poll() or the blocking wrapper). It MUST be short and
- * non-blocking, and MUST NOT call other SGR_SDK_* functions — record the event
+ * non-blocking, and MUST NOT call other SGR_SDK_* functions - record the event
  * and act on it from your own main loop.
  * ============================================================================= */
 typedef enum {
@@ -65,7 +65,7 @@ typedef enum {
     SGR_SDK_EVT_RESULT_RECEIVED,    /* A verdict frame arrived (OK or NOK)      */
     SGR_SDK_EVT_AUTH_COMPLETE,      /* Terminal: authentication succeeded       */
     SGR_SDK_EVT_AUTH_FAILED,        /* Terminal: rejected / failed (no retries) */
-    SGR_SDK_EVT_RETRY               /* Attempt failed — retrying                */
+    SGR_SDK_EVT_RETRY               /* Attempt failed - retrying                */
 } sgr_sdk_event_t;
 
 typedef void (*sgr_sdk_event_cb_t)(sgr_sdk_event_t event, void *ctx);
@@ -97,7 +97,7 @@ typedef struct
      * Valid range: 0-1000. Set to 0xFFFF when not registered. */
     uint16_t short_id;
 
-    /* Raw frame buffer — used in GATEWAY_MODE to pass received frames to MW */
+    /* Raw frame buffer - used in GATEWAY_MODE to pass received frames to MW */
     uint8_t  raw_frame[512];
     uint16_t raw_frame_size;
 }sdk_sgr_param_t;

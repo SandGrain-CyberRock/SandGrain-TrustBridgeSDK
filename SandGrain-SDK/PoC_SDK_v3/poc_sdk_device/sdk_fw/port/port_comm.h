@@ -8,7 +8,7 @@
  * port_comm_ctx_t
  *
  * Opaque per-connection context. The shape is defined by the transport
- * implementation (port_comm.c) — the SDK and its callers treat it as a handle.
+ * implementation (port_comm.c) - the SDK and its callers treat it as a handle.
  * Transports that keep their state in file-scope globals may ignore ctx and
  * accept NULL.
  * ============================================================================= */
@@ -31,7 +31,7 @@ void port_comm_close  (port_comm_ctx_t *ctx);
  * ============================================================================= */
 
 /* Dial the gateway (if not already linked) and announce this device with
- * "HELLO <tid_hex>[ TRIGGER]". Idempotent — returns true if the link is up. */
+ * "HELLO <tid_hex>[ TRIGGER]". Idempotent - returns true if the link is up. */
 bool port_comm_connect_persistent(const char *tid_hex, bool wants_trigger);
 
 /* True while the persistent link to the gateway is established. */

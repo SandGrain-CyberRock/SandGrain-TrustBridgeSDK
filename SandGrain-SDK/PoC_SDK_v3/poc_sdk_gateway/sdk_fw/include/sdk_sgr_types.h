@@ -30,7 +30,7 @@ typedef struct
      * Valid range: 0-1000. Set to 0xFFFF when not registered. */
     uint16_t short_id;
 
-    /* Raw frame buffer — used in GATEWAY_MODE to pass received frames to MW */
+    /* Raw frame buffer - used in GATEWAY_MODE to pass received frames to MW */
     uint8_t  raw_frame[512];
     uint16_t raw_frame_size;
 }sdk_sgr_param_t;

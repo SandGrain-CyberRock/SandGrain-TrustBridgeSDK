@@ -96,8 +96,8 @@ typedef enum
 
 /**
  * @brief Authentication direction for crypto_get_rw.
- *   - TOKEN_AUTH (0x03000800): token→cloud auth (Phase 1).
- *   - HOST_AUTH  (0x05000800): cloud→token auth (Phase 2 / FW / Install).
+ *   - TOKEN_AUTH (0x03000800): token->cloud auth (Phase 1).
+ *   - HOST_AUTH  (0x05000800): cloud->token auth (Phase 2 / FW / Install).
  */
 typedef enum
 {

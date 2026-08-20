@@ -47,6 +47,27 @@ LDFLAGS := \
         -lmosquitto -lpthread
 endif
 
+# ---- Device transport selection ----
+# Default: TCP server (port_comm_device.c).
+# `make GW_BLE=1`: talk to the board(s) directly over Bluetooth LE (NUS) via
+# gattlib/BlueZ — no relay. Linux only. Each device channel scans for and
+# connects to its own peripheral (any advertised name starting with
+# "SandGrain-Dev"). GW_BLE_DEVICES sets how many concurrent BLE devices the
+# gateway serves (default 2 — e.g. one nRF board + one Pi device).
+GW_BLE_DEVICES ?= 2
+ifeq ($(GW_BLE),1)
+DEVICE_PORT_SRC := port/port_comm_device_ble.c
+# PORT_COMM_DEVICE_DEBUG: the [COMM_BLE] logs are essential for diagnosing
+# scan/connect/subscribe issues and cheap at runtime — always on for BLE.
+CFLAGS  += -DGW_BLE=1 -UMAX_DEVICES -DMAX_DEVICES=$(GW_BLE_DEVICES) -DPORT_COMM_DEVICE_DEBUG=1 $(shell pkg-config --cflags gattlib gio-2.0 glib-2.0)
+LDFLAGS += $(shell pkg-config --libs gattlib gio-2.0 glib-2.0) -lpthread
+else
+DEVICE_PORT_SRC := port/port_comm_device.c
+endif
+# gw_presence.c is built for BOTH transports: devices are MQTT-free now, so the
+# gateway publishes their retained sandgrain/v1/{tid}/status and relays their
+# cmd/run_auth triggers whether they are reached over TCP or BLE.
+
 TARGET := test_gw
 
 # ================== INCLUDE PATHS ==================
@@ -89,14 +110,13 @@ SDK_SRCS := \
 POC_SRCS := \
     main_gw.c \
     port/port_comm.c \
-    port/port_comm_device.c \
+    $(DEVICE_PORT_SRC) \
     port/port_delay.c \
     port/port_spi_usb.c \
     port/port_random.c \
     port/gw_log.c \
     port/gw_whitelist.c \
-    port/gw_presence.c \
-    port/trace_log.c
+    port/gw_presence.c
 
 # ================== BUILD ==================
 INCLUDES := $(addprefix -I,$(INC_DIRS))

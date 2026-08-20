@@ -12,7 +12,7 @@ static uint32_t   crc32_table[AUTH_DB_MAX_DEVICES];
 static bool       active_table[AUTH_DB_MAX_DEVICES];
 static auth_ctx_t ctx_table[AUTH_DB_MAX_DEVICES];
 
-/* Cache-miss hook — see auth_db.h for the rationale.
+/* Cache-miss hook - see auth_db.h for the rationale.
  * Set by the application (main_gw.c) so the SDK middleware stays generic. */
 static auth_db_miss_handler_t s_miss_handler = NULL;
 
@@ -89,7 +89,7 @@ auth_db_status_t auth_db_register(const char *tid_hex, uint32_t *crc32_out)
         else if (active_table[idx])
         {
             *crc32_out = crc32_table[idx];
-            printf("[AUTH_DB] Already registered — crc32=0x%08X\n", *crc32_out);
+            printf("[AUTH_DB] Already registered - crc32=0x%08X\n", *crc32_out);
             status = AUTH_DB_ALREADY_ACTIVE;
         }
         else
@@ -107,7 +107,7 @@ auth_db_status_t auth_db_register(const char *tid_hex, uint32_t *crc32_out)
             ctx_table[idx].state  = AUTH_STATE_IDLE;
             ctx_table[idx].result = AUTH_RESULT_NONE;
 
-            printf("[AUTH_DB] Registered — idx=%d | crc32=0x%08X | tid=%.16s...\n",
+            printf("[AUTH_DB] Registered - idx=%d | crc32=0x%08X | tid=%.16s...\n",
                    idx, crc32, tid_hex);
 
             status = AUTH_DB_OK;
@@ -124,7 +124,7 @@ void auth_db_rebind_whitelist(void)
      * (removing and re-adding a device moves it to the end). Registration skips
      * any slot that is already active, so without this pass a reorder leaves
      * crc32_table[i] bound to the TID that USED to sit at position i, while
-     * auth_db_whitelist[i] now names a different one — and the gateway asks
+     * auth_db_whitelist[i] now names a different one - and the gateway asks
      * CyberRock to challenge the wrong token, which always answers AUTH_NOT_OK.
      * Re-bind the slots that moved; leave the rest alone so an in-flight auth on
      * an unaffected device keeps its context. */
@@ -133,7 +133,7 @@ void auth_db_rebind_whitelist(void)
         if (!active_table[i])
             continue;
 
-        /* Slot fell off the end of a shrunken whitelist — device de-enrolled. */
+        /* Slot fell off the end of a shrunken whitelist - device de-enrolled. */
         if (i >= (int)auth_db_whitelist_count)
         {
             printf("[AUTH_DB] Released idx=%d | crc32=0x%08X | no longer in whitelist\n",
@@ -144,7 +144,7 @@ void auth_db_rebind_whitelist(void)
             continue;
         }
 
-        /* Still the TID this slot was registered with — nothing to do. */
+        /* Still the TID this slot was registered with - nothing to do. */
         if (strncmp(ctx_table[i].tid_hex, auth_db_whitelist[i], AUTH_DB_TID_HEX_LEN) == 0)
             continue;
 
@@ -176,14 +176,14 @@ auth_db_status_t auth_db_resolve(uint32_t crc32, char *tid_hex_out)
     {
         int idx = auth_db_find_by_crc32(crc32);
 
-        /* Cache miss → give the application a chance to refresh the whitelist
+        /* Cache miss -> give the application a chance to refresh the whitelist
          * (e.g. fetch newly-enrolled TIDs from the backend) before failing.
          * This closes the race where a device starts authenticating moments
          * after being added in TrustBridge but before the gateway's polling
          * refresh has picked it up. */
         if (idx < 0 && s_miss_handler != NULL)
         {
-            printf("[AUTH_DB] CRC32 not found: 0x%08X — forcing whitelist refresh\n", crc32);
+            printf("[AUTH_DB] CRC32 not found: 0x%08X - forcing whitelist refresh\n", crc32);
             int new_count = s_miss_handler(crc32);
             if (new_count > 0)
                 idx = auth_db_find_by_crc32(crc32);

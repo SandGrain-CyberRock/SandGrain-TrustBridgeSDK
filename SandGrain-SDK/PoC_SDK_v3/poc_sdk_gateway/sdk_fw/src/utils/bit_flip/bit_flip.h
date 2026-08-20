@@ -8,7 +8,7 @@
 #define BITFLIP_MAX_DIFFBITS 32
 
 /* -----------------------------------------------------------------------------
- * Fault Injection — for testing only
+ * Fault Injection - for testing only
  * Set FI_CW_ENABLED / FI_RW_ENABLED to 0 in production
  * ----------------------------------------------------------------------------- */
 #define FI_CW_ENABLED    0

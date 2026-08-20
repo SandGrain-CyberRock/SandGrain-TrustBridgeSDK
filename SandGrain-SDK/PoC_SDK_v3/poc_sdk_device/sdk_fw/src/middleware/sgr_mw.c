@@ -1,22 +1,22 @@
 /* =============================================================================
  * sgr_mw.c
  *
- * Middleware — unified FSM for all authentication flows
+ * Middleware - unified FSM for all authentication flows
  *
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * GATEWAY_MODE
- *   sgr_mw_init                          — init crypto chip (common)
- *   sgr_mw_authentication_token_to_server — GW authenticates itself (Phase 1)
- *   sgr_mw_authentication_server_to_token — GW authenticates itself (Phase 2)
- *   sgr_mw_gw_authenticate_device         — GW handles device auth request
+ *   sgr_mw_init                          - init crypto chip (common)
+ *   sgr_mw_authentication_token_to_server - GW authenticates itself (Phase 1)
+ *   sgr_mw_authentication_server_to_token - GW authenticates itself (Phase 2)
+ *   sgr_mw_gw_authenticate_device         - GW handles device auth request
  *
  * DEVICE_MODE
- *   sgr_mw_init                          — init crypto chip (common)
- *   sgr_mw_authenticate_via_gw           — DEVICE authenticates via GW
- * ─────────────────────────────────────────────────────────────────────────────
+ *   sgr_mw_init                          - init crypto chip (common)
+ *   sgr_mw_authenticate_via_gw           - DEVICE authenticates via GW
+ * -----------------------------------------------------------------------------
  *
  * Pattern:
- *   - Non-blocking FSM — returns SGR_MW_BUSY until done
+ *   - Non-blocking FSM - returns SGR_MW_BUSY until done
  *   - pending_result preserved across calls, CLOSE step returns it
  *   - attempt counter preserved across memset via saved_attempt
  * ============================================================================= */
@@ -31,7 +31,6 @@
 #include "../utils/encoding/encoding_hex.h"
 #include "../utils/bit_flip/bit_flip.h"
 #include "../utils/sha256/sha256.h"
-#include "trace_log.h"   /* local traceability log (app/port) — no-op unless TRACE_LOG_PATH set */
 
 #if SDK_MODE == GATEWAY_MODE
     #include "device_service.h"
@@ -71,7 +70,7 @@
         uint8_t         cw_candidates[7][32];
         int             candidate_count;
         int             candidate_idx;
-        server_ctx_t    srv;              /* MQTT context — one per channel */
+        server_ctx_t    srv;              /* MQTT context - one per channel */
     } gw_ctx_t;
 
     static port_comm_device_t  *gw_port_table[MAX_DEVICES];
@@ -90,12 +89,12 @@
 #endif
 
 /* -----------------------------------------------------------------------------
- * Device ID — read once at init, shared across all FSMs
+ * Device ID - read once at init, shared across all FSMs
  * ----------------------------------------------------------------------------- */
 static uint8_t mw_tid[32];
 static bool    mw_initialized = false;
 
-/* RW from the most recent successful sgr_mw_verify_fw — used by sgr_mw_installation */
+/* RW from the most recent successful sgr_mw_verify_fw - used by sgr_mw_installation */
 static uint8_t mw_rw_verify[16];
 static bool    mw_rw_verify_valid = false;
 
@@ -105,8 +104,8 @@ char g_sgr_last_claim_token_id[SGR_CLAIM_TOKEN_ID_LEN] = {0};
 
 /* Fault-injection test harness (app layer, fault_injection/fi_device.c) may set
  * this to skip Phase 2 for options 2/3 (main-branch single-phase parity).
- * The SDK does not depend on the app header — referenced via weak extern,
- * resolves to NULL (→ default mutual-auth behavior) when no app defines it. */
+ * The SDK does not depend on the app header - referenced via weak extern,
+ * resolves to NULL (-> default mutual-auth behavior) when no app defines it. */
 extern volatile uint8_t fi_skip_phase2 __attribute__((weak));
 #define FI_SKIP_PHASE2_ACTIVE  (&fi_skip_phase2 != NULL && fi_skip_phase2)
 
@@ -114,7 +113,7 @@ extern volatile uint8_t fi_skip_phase2 __attribute__((weak));
 
 /* =============================================================================
  *
- * COMMON — sgr_mw_init
+ * COMMON - sgr_mw_init
  *
  * ============================================================================= */
 sgr_mw_status_t sgr_mw_init(void)
@@ -133,13 +132,13 @@ sgr_mw_status_t sgr_mw_init(void)
             gw_port_table[i] = port_comm_device_create();
             if (gw_port_table[i] == NULL)
             {
-                MW_LOG("ERROR — channel_%d port_comm_device_create failed", i);
+                MW_LOG("ERROR - channel_%d port_comm_device_create failed", i);
                 return SGR_MW_ERROR;
             }
             gw_dev_ctx_table[i].comm = gw_port_table[i];
             if (DEVICE_Init(&gw_dev_ctx_table[i], channel_id) != DEVICE_OK)
             {
-                MW_LOG("ERROR — channel_%d init failed", i);
+                MW_LOG("ERROR - channel_%d init failed", i);
                 return SGR_MW_ERROR;
             }
         }
@@ -155,17 +154,10 @@ sgr_mw_status_t sgr_mw_init(void)
             mw_initialized = true;
             status         = SGR_MW_OK;
             MW_LOG("SDK ready");
-
-            /* Stamp the traceability log with this device's TID (hex). */
-            {
-                char tid_hex[65];
-                bytes_to_hex(mw_tid, sizeof(mw_tid), tid_hex, sizeof(tid_hex));
-                trace_log_set_device_id(tid_hex);
-            }
         }
         else
         {
-            MW_LOG("ERROR — crypto chip not responding");
+            MW_LOG("ERROR - crypto chip not responding");
         }
     #endif
 
@@ -179,10 +171,10 @@ sgr_mw_status_t sgr_mw_init(void)
  * ============================================================================= */
 #if SDK_MODE == GATEWAY_MODE
 
-/* ─────────────────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------------------
  * sgr_mw_authentication_token_to_server
- * Phase 1 — GW sends TID to server, gets CW, computes RW, replies
- * ───────────────────────────────────────────────────────────────────────────── */
+ * Phase 1 - GW sends TID to server, gets CW, computes RW, replies
+ * ----------------------------------------------------------------------------- */
 typedef enum {
     T2S_STEP_OPEN = 0,
     T2S_STEP_GET_CW_SEND,
@@ -193,7 +185,7 @@ typedef enum {
     T2S_STEP_CLOSE
 } t2s_step_t;
 
-static server_ctx_t gw_srv_ctx;   /* GW own authentication — t2s / s2t */
+static server_ctx_t gw_srv_ctx;   /* GW own authentication - t2s / s2t */
 
 static struct {
     t2s_step_t      step;
@@ -222,9 +214,9 @@ sgr_mw_status_t sgr_mw_authentication_token_to_server(void)
             t2s_ctx.attempt        = saved_attempt;
             t2s_ctx.pending_result = SGR_MW_ERROR;
 
-            MW_LOG("────────────────────────────────────────");
-            MW_LOG("PHASE 1  Token → Server");
-            MW_LOG("────────────────────────────────────────");
+            MW_LOG("----------------------------------------");
+            MW_LOG("PHASE 1  Token -> Server");
+            MW_LOG("----------------------------------------");
 
             srv_status = SERVER_Open(&gw_srv_ctx, mw_tid);
             if (srv_status != SERVER_OK)
@@ -275,7 +267,7 @@ sgr_mw_status_t sgr_mw_authentication_token_to_server(void)
             }
             else
             {
-                MW_LOG("[1/4] Challenge Word received ✔");
+                MW_LOG("[1/4] Challenge Word received");
                 t2s_ctx.step = T2S_STEP_COMPUTE_RW;
                 status       = SGR_MW_BUSY;
             }
@@ -300,7 +292,7 @@ sgr_mw_status_t sgr_mw_authentication_token_to_server(void)
             }
             else
             {
-                MW_LOG("[2/4] Response Word computed ✔");
+                MW_LOG("[2/4] Response Word computed");
                 t2s_ctx.step = T2S_STEP_REPLY_RW_SEND;
             }
             status = SGR_MW_BUSY;
@@ -334,7 +326,7 @@ sgr_mw_status_t sgr_mw_authentication_token_to_server(void)
             }
             else if (srv_status == SERVER_AUTH_FAILED)
             {
-                MW_LOG("[4/4] Server rejected token — AUTH FAILED ✖");
+                MW_LOG("[4/4] Server rejected token - AUTH FAILED");
                 t2s_ctx.pending_result = SGR_MW_AUTH_FAILED;
                 t2s_ctx.step           = T2S_STEP_CLOSE;
                 status                 = SGR_MW_BUSY;
@@ -348,7 +340,7 @@ sgr_mw_status_t sgr_mw_authentication_token_to_server(void)
             }
             else
             {
-                MW_LOG("[4/4] Server validated token — AUTH OK ✔");
+                MW_LOG("[4/4] Server validated token - AUTH OK");
                 t2s_ctx.pending_result = SGR_MW_OK;
                 t2s_ctx.step           = T2S_STEP_CLOSE;
                 status                 = SGR_MW_BUSY;
@@ -367,7 +359,7 @@ sgr_mw_status_t sgr_mw_authentication_token_to_server(void)
             else
             {
                 if (t2s_ctx.pending_result != SGR_MW_OK)
-                    MW_LOG("[FAILED] Token→Server failed after %d attempts", t2s_ctx.attempt);
+                    MW_LOG("[FAILED] Token->Server failed after %d attempts", t2s_ctx.attempt);
                 status       = t2s_ctx.pending_result;
                 t2s_ctx.step = T2S_STEP_OPEN;
             }
@@ -381,10 +373,10 @@ sgr_mw_status_t sgr_mw_authentication_token_to_server(void)
     return status;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------------------
  * sgr_mw_authentication_server_to_token
- * Phase 2 — GW generates CW from previous RW, gets RW from server, compares
- * ───────────────────────────────────────────────────────────────────────────── */
+ * Phase 2 - GW generates CW from previous RW, gets RW from server, compares
+ * ----------------------------------------------------------------------------- */
 typedef enum {
     S2T_STEP_OPEN = 0,
     S2T_STEP_BUILD_CW,
@@ -422,9 +414,9 @@ sgr_mw_status_t sgr_mw_authentication_server_to_token(void)
             s2t_ctx.attempt        = saved_attempt;
             s2t_ctx.pending_result = SGR_MW_ERROR;
 
-            MW_LOG("────────────────────────────────────────");
-            MW_LOG("PHASE 2  Server → Token");
-            MW_LOG("────────────────────────────────────────");
+            MW_LOG("----------------------------------------");
+            MW_LOG("PHASE 2  Server -> Token");
+            MW_LOG("----------------------------------------");
 
             srv_status = SERVER_Open(&gw_srv_ctx, mw_tid);
             if (srv_status != SERVER_OK)
@@ -444,7 +436,7 @@ sgr_mw_status_t sgr_mw_authentication_server_to_token(void)
         case S2T_STEP_BUILD_CW:
             memcpy(&s2t_ctx.cw[0],  t2s_ctx.rw, 16);
             memcpy(&s2t_ctx.cw[16], t2s_ctx.rw, 16);
-            MW_LOG("[1/4] Challenge Word generated from previous RW ✔");
+            MW_LOG("[1/4] Challenge Word generated from previous RW");
             s2t_ctx.step = S2T_STEP_GET_RW_SEND;
             status       = SGR_MW_BUSY;
             break;
@@ -483,7 +475,7 @@ sgr_mw_status_t sgr_mw_authentication_server_to_token(void)
             }
             else
             {
-                MW_LOG("[2/4] Response Word received from server ✔");
+                MW_LOG("[2/4] Response Word received from server");
                 s2t_ctx.step = S2T_STEP_COMPUTE_RW;
                 status       = SGR_MW_BUSY;
             }
@@ -502,7 +494,7 @@ sgr_mw_status_t sgr_mw_authentication_server_to_token(void)
             }
             else
             {
-                MW_LOG("[3/4] Response Word computed on chip ✔");
+                MW_LOG("[3/4] Response Word computed on chip");
                 s2t_ctx.step = S2T_STEP_COMPARE;
             }
             status = SGR_MW_BUSY;
@@ -511,12 +503,12 @@ sgr_mw_status_t sgr_mw_authentication_server_to_token(void)
         case S2T_STEP_COMPARE:
             if (memcmp(s2t_ctx.rw_server, s2t_ctx.rw_chip, 16) != 0)
             {
-                MW_LOG("[4/4] Response Word mismatch — server not trusted ✖");
+                MW_LOG("[4/4] Response Word mismatch - server not trusted");
                 s2t_ctx.pending_result = SGR_MW_AUTH_FAILED;
             }
             else
             {
-                MW_LOG("[4/4] Response Word match — server identity confirmed ✔");
+                MW_LOG("[4/4] Response Word match - server identity confirmed");
                 s2t_ctx.pending_result = SGR_MW_OK;
             }
             s2t_ctx.step = S2T_STEP_SEND_RESULT;
@@ -553,7 +545,7 @@ sgr_mw_status_t sgr_mw_authentication_server_to_token(void)
             else
             {
                 if (s2t_ctx.pending_result != SGR_MW_OK)
-                    MW_LOG("[FAILED] Server→Token failed after %d attempts", s2t_ctx.attempt);
+                    MW_LOG("[FAILED] Server->Token failed after %d attempts", s2t_ctx.attempt);
                 status       = s2t_ctx.pending_result;
                 s2t_ctx.step = S2T_STEP_OPEN;
             }
@@ -568,14 +560,14 @@ sgr_mw_status_t sgr_mw_authentication_server_to_token(void)
 }
 
 /* =============================================================================
- * GW FSM — sgr_mw_gw_authenticate_device
+ * GW FSM - sgr_mw_gw_authenticate_device
  * ============================================================================= */
 
 /* -----------------------------------------------------------------------------
  * build_cw_candidates
  *
  * Builds all 2^N - 1 CW candidates from CW2 (received) by flipping back
- * each combination of the differing bits — excluding CW2 itself (idx 0)
+ * each combination of the differing bits - excluding CW2 itself (idx 0)
  * and CW1 original (all bits flipped back = last combination).
  * ----------------------------------------------------------------------------- */
 static int build_cw_candidates(const uint8_t *cw1,
@@ -619,7 +611,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
     
     switch (ctx->step)
     {
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_OPEN:
         {
             int saved_attempt   = ctx->attempt;
@@ -627,16 +619,16 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             ctx->attempt        = saved_attempt;
             ctx->pending_result = SGR_MW_ERROR;
 
-            MW_LOG("[CH%d] ────────────────────────────────────────", device_idx);
-            MW_LOG("[CH%d] GW — waiting for device auth request", device_idx);
-            MW_LOG("[CH%d] ────────────────────────────────────────", device_idx);
+            MW_LOG("[CH%d] ----------------------------------------", device_idx);
+            MW_LOG("[CH%d] GW - waiting for device auth request", device_idx);
+            MW_LOG("[CH%d] ----------------------------------------", device_idx);
 
             ctx->step = GW_STEP_RECEIVE_AUTH_REQUEST;
             status    = SGR_MW_BUSY;
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_RECEIVE_AUTH_REQUEST:
             //MW_LOG("[CH%d] calling DEVICE_ReceiveAuthRequest", device_idx);
             dev_status = DEVICE_ReceiveAuthRequest(dev_ctx, &ctx->crc32);
@@ -662,14 +654,14 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                 }
                 else
                 {
-                    MW_LOG("[CH%d][1/6] Auth request received — CRC32=0x%08X ✔", device_idx, ctx->crc32);
+                    MW_LOG("[CH%d][1/6] Auth request received - CRC32=0x%08X", device_idx, ctx->crc32);
                     ctx->step = GW_STEP_GENERATE_CW;
                 }
                 status = SGR_MW_BUSY;
             }
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_GENERATE_CW:
             random_bytes(ctx->cw, sizeof(ctx->cw));
             {
@@ -679,13 +671,13 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                     memcpy(auth->cw, ctx->cw, sizeof(ctx->cw));
                     auth->state = AUTH_STATE_CW_SENT;
                 }
-                MW_LOG("[CH%d][2/6] Challenge Word generated ✔", device_idx);
+                MW_LOG("[CH%d][2/6] Challenge Word generated", device_idx);
                 ctx->step = GW_STEP_SEND_CW;
             }
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_SEND_CW:
         {
             uint8_t cw_to_send[32];
@@ -701,14 +693,14 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             }
             else
             {
-                MW_LOG("[CH%d][3/6] Challenge Word sent to device ✔", device_idx);
+                MW_LOG("[CH%d][3/6] Challenge Word sent to device", device_idx);
                 ctx->step = GW_STEP_RECEIVE_RW;
             }
             status = SGR_MW_BUSY;
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_RECEIVE_RW:
             dev_status = DEVICE_ReceiveRW(dev_ctx, ctx->cw_echo, ctx->rw_device);
 
@@ -734,7 +726,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                     memcpy(auth->rw_device, ctx->rw_device, sizeof(ctx->rw_device));
                     auth->state = AUTH_STATE_RW_RECEIVED;
                 }
-                MW_LOG("[CH%d][4/6] CW echo + RW received from device ✔", device_idx);
+                MW_LOG("[CH%d][4/6] CW echo + RW received from device", device_idx);
                 MW_LOG("[CH%d][DEBUG] RW_device: ", device_idx);
                 for (int i = 0; i < 16; i++) printf("%02x", ctx->rw_device[i]);
                 printf("\n");
@@ -743,7 +735,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             }
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_VERIFY_CW:
         {
             int bit_diff = 0;
@@ -783,7 +775,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
 
             if (bit_diff > CW_BITFLIP_THRESHOLD)
             {
-                MW_LOG("[CH%d][ERROR] CW mismatch — bit diff=%d > threshold=%d — AUT_NOK",
+                MW_LOG("[CH%d][ERROR] CW mismatch - bit diff=%d > threshold=%d - AUT_NOK",
                        device_idx, bit_diff, CW_BITFLIP_THRESHOLD);
                 ctx->pending_result    = SGR_MW_AUTH_FAILED;
                 ctx->cw_bit_diff_count = 0;
@@ -797,13 +789,13 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                     ctx->cw_bit_diff_count,
                     ctx->cw_candidates);
 
-                MW_LOG("[CH%d][4/6] CW verified — bit diff=%d — %d candidates built ✔",
+                MW_LOG("[CH%d][4/6] CW verified - bit diff=%d - %d candidates built",
                        device_idx, bit_diff, ctx->candidate_count);
                 ctx->step = GW_STEP_GET_RW_SERVER_SEND;
             }
             else
             {
-                MW_LOG("[CH%d][4/6] CW verified — bit diff=0 ✔", device_idx);
+                MW_LOG("[CH%d][4/6] CW verified - bit diff=0", device_idx);
                 ctx->cw_bit_diff_count = 0;
                 ctx->candidate_count   = 0;
                 ctx->step              = GW_STEP_GET_RW_SERVER_SEND;
@@ -812,7 +804,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_GET_RW_SERVER_SEND:
         {
             uint8_t tid_bytes[32];
@@ -837,7 +829,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                 }
                 else
                 {
-                    MW_LOG("[CH%d][5/6] RW request sent to server ✔", device_idx);
+                    MW_LOG("[CH%d][5/6] RW request sent to server", device_idx);
                     ctx->step = GW_STEP_GET_RW_SERVER_RECV;
                 }
             }
@@ -845,7 +837,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_GET_RW_SERVER_RECV:
         {
             uint8_t tid_bytes[32];
@@ -871,7 +863,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                     memcpy(auth->rw_server, ctx->rw_server, sizeof(ctx->rw_server));
                     auth->state = AUTH_STATE_SERVER_VERIFIED;
                 }
-                MW_LOG("[CH%d][5/6] RW received from server ✔", device_idx);
+                MW_LOG("[CH%d][5/6] RW received from server", device_idx);
                 MW_LOG("[CH%d][DEBUG] RW_server: ", device_idx);
                 for (int i = 0; i < 16; i++) printf("%02x", ctx->rw_server[i]);
                 printf("\n");
@@ -881,7 +873,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_COMPARE_RW:
         {
             int bit_diff = 0;
@@ -891,7 +883,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                 while (diff) { bit_diff += (diff & 1); diff >>= 1; }
             }
 
-            MW_LOG("[CH%d][DEBUG] RW compare — device vs server — bit_diff=%d", device_idx, bit_diff);
+            MW_LOG("[CH%d][DEBUG] RW compare - device vs server - bit_diff=%d", device_idx, bit_diff);
 
             auth_ctx_t *auth = auth_db_get_ctx(ctx->crc32);
             if (auth != NULL)
@@ -899,31 +891,31 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
 
             if (bit_diff == 0)
             {
-                MW_LOG("[CH%d][6/6] RW match — bit diff=0 — AUT_OK ✔", device_idx);
+                MW_LOG("[CH%d][6/6] RW match - bit diff=0 - AUT_OK", device_idx);
                 ctx->pending_result = SGR_MW_OK;
                 ctx->step           = GW_STEP_SEND_RESULT;
             }
             else if (bit_diff <= RW_BITFLIP_THRESHOLD)
             {
-                MW_LOG("[CH%d][6/6] RW near-match — bit diff=%d <= threshold=%d — AUT_OK ✔",
+                MW_LOG("[CH%d][6/6] RW near-match - bit diff=%d <= threshold=%d - AUT_OK",
                        device_idx, bit_diff, RW_BITFLIP_THRESHOLD);
                 ctx->pending_result = SGR_MW_OK;
                 ctx->step           = GW_STEP_SEND_RESULT;
             }
             else
             {
-                MW_LOG("[CH%d][6/6] RW mismatch — bit diff=%d > threshold=%d",
+                MW_LOG("[CH%d][6/6] RW mismatch - bit diff=%d > threshold=%d",
                        device_idx, bit_diff, RW_BITFLIP_THRESHOLD);
 
                 if (ctx->cw_bit_diff_count == 0 || ctx->candidate_count == 0)
                 {
-                    MW_LOG("[CH%d][ERROR] No CW candidates available — AUT_NOK", device_idx);
+                    MW_LOG("[CH%d][ERROR] No CW candidates available - AUT_NOK", device_idx);
                     ctx->pending_result = SGR_MW_AUTH_FAILED;
                     ctx->step           = GW_STEP_SEND_RESULT;
                 }
                 else
                 {
-                    MW_LOG("[CH%d][ERROR MGT] Starting Error Management — %d candidates",
+                    MW_LOG("[CH%d][ERROR MGT] Starting Error Management - %d candidates",
                            device_idx, ctx->candidate_count);
                     ctx->candidate_idx = 0;
                     ctx->step          = GW_STEP_ERROR_MGT_SEND;
@@ -933,7 +925,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_ERROR_MGT_SEND:
         {
             uint8_t tid_bytes[32];
@@ -972,7 +964,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_ERROR_MGT_RECV:
         {
             uint8_t tid_bytes[32];
@@ -998,7 +990,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_ERROR_MGT_COMPARE:
         {
             int bit_diff = 0;
@@ -1008,7 +1000,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                 while (diff) { bit_diff += (diff & 1); diff >>= 1; }
             }
 
-            MW_LOG("[CH%d][ERROR MGT] ─────────────────────────────────", device_idx);
+            MW_LOG("[CH%d][ERROR MGT] ---------------------------------", device_idx);
             MW_LOG("[CH%d][ERROR MGT] Candidate %d / %d", device_idx, ctx->candidate_idx + 1, ctx->candidate_count);
             MW_LOG("[CH%d][ERROR MGT] CW candidate: ", device_idx);
             for (int i = 0; i < 32; i++) printf("%02x", ctx->cw_candidates[ctx->candidate_idx][i]);
@@ -1019,13 +1011,13 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             MW_LOG("[CH%d][ERROR MGT] RW_server:    ", device_idx);
             for (int i = 0; i < 16; i++) printf("%02x", ctx->rw_server[i]);
             printf("\n");
-            MW_LOG("[CH%d][ERROR MGT] bit_diff=%d — %s", device_idx, bit_diff,
-                   bit_diff <= RW_BITFLIP_THRESHOLD ? "MATCH ✔" : "no match, trying next");
-            MW_LOG("[CH%d][ERROR MGT] ─────────────────────────────────", device_idx);
+            MW_LOG("[CH%d][ERROR MGT] bit_diff=%d - %s", device_idx, bit_diff,
+                   bit_diff <= RW_BITFLIP_THRESHOLD ? "MATCH" : "no match, trying next");
+            MW_LOG("[CH%d][ERROR MGT] ---------------------------------", device_idx);
 
             if (bit_diff <= RW_BITFLIP_THRESHOLD)
             {
-                MW_LOG("[CH%d][ERROR MGT] Candidate %d matched — AUT_OK ✔",
+                MW_LOG("[CH%d][ERROR MGT] Candidate %d matched - AUT_OK",
                        device_idx, ctx->candidate_idx + 1);
                 ctx->pending_result = SGR_MW_OK;
                 ctx->step           = GW_STEP_SEND_RESULT;
@@ -1035,13 +1027,13 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
                 ctx->candidate_idx++;
                 if (ctx->candidate_idx < ctx->candidate_count)
                 {
-                    MW_LOG("[CH%d][ERROR MGT] Candidate %d failed — trying next",
+                    MW_LOG("[CH%d][ERROR MGT] Candidate %d failed - trying next",
                            device_idx, ctx->candidate_idx);
                     ctx->step = GW_STEP_ERROR_MGT_SEND;
                 }
                 else
                 {
-                    MW_LOG("[CH%d][ERROR MGT] All candidates exhausted — AUT_NOK", device_idx);
+                    MW_LOG("[CH%d][ERROR MGT] All candidates exhausted - AUT_NOK", device_idx);
                     ctx->pending_result = SGR_MW_AUTH_FAILED;
                     ctx->step           = GW_STEP_SEND_RESULT;
                 }
@@ -1050,7 +1042,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_SEND_RESULT:
         {
             bool auth_ok = (ctx->pending_result == SGR_MW_OK);
@@ -1063,7 +1055,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             }
             else
             {
-                MW_LOG("[CH%d][6/6] Auth result sent to device — %s",
+                MW_LOG("[CH%d][6/6] Auth result sent to device - %s",
                        device_idx, auth_ok ? "AUT_OK" : "AUT_NOK");
             }
 
@@ -1079,7 +1071,7 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_STEP_CLOSE:
             SERVER_Close(&ctx->srv);
             port_comm_device_close(dev_ctx->comm);
@@ -1109,10 +1101,10 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
     return status;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------------------
  * sgr_mw_gw_receive_fw_verification
  * GW bridge: receive type "6" from device, resolve TID, forward to server
- * ───────────────────────────────────────────────────────────────────────────── */
+ * ----------------------------------------------------------------------------- */
 typedef enum {
     GW_FWV_STEP_RECEIVE = 0,
     GW_FWV_STEP_SERVER_OPEN,
@@ -1129,7 +1121,7 @@ typedef struct {
     char            tid_hex[65];
     uint8_t         tid_bytes[32];
     bool            fw_ok;
-    uint8_t         fw_rw[16];   /* RW computed by device crypto chip — bridged to server */
+    uint8_t         fw_rw[16];   /* RW computed by device crypto chip - bridged to server */
     bool            ack_ok;
     server_ctx_t    srv;
 } gw_fwv_ctx_t;
@@ -1146,15 +1138,15 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
 
     switch (ctx->step)
     {
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_FWV_STEP_RECEIVE:
         {
             memset(ctx, 0, sizeof(gw_fwv_ctx_t));
             ctx->pending_result = SGR_MW_ERROR;
 
-            MW_LOG("[CH%d] ────────────────────────────────────────", device_idx);
-            MW_LOG("[CH%d] GW — waiting for FW verification result", device_idx);
-            MW_LOG("[CH%d] ────────────────────────────────────────", device_idx);
+            MW_LOG("[CH%d] ----------------------------------------", device_idx);
+            MW_LOG("[CH%d] GW - waiting for FW verification result", device_idx);
+            MW_LOG("[CH%d] ----------------------------------------", device_idx);
 
             dev_status = DEVICE_ReceiveFWVerificationResult(dev_ctx, &ctx->crc32, &ctx->fw_ok, ctx->fw_rw);
 
@@ -1172,10 +1164,10 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
             }
             else
             {
-                MW_LOG("[CH%d][1/2] FW verification received — CRC32=0x%08X, result=%s ✔",
+                MW_LOG("[CH%d][1/2] FW verification received - CRC32=0x%08X, result=%s",
                        device_idx, ctx->crc32, ctx->fw_ok ? "FW_OK" : "FW_NOK");
 
-                /* Resolve CRC32 → TID */
+                /* Resolve CRC32 -> TID */
                 if (auth_db_resolve(ctx->crc32, ctx->tid_hex) != AUTH_DB_OK)
                 {
                     MW_LOG("[CH%d][ERROR] Device not registered (CRC32=0x%08X)", device_idx, ctx->crc32);
@@ -1192,7 +1184,7 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_FWV_STEP_SERVER_OPEN:
             srv_status = SERVER_Open(&ctx->srv, ctx->tid_bytes);
             if (srv_status != SERVER_OK)
@@ -1208,7 +1200,7 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_FWV_STEP_FORWARD:
             MW_LOG("[CH%d][2/4] Bridging FW verification result to server...", device_idx);
             srv_status = SERVER_SendFWVerificationBridge(&ctx->srv, ctx->tid_bytes, ctx->fw_ok, ctx->fw_rw);
@@ -1220,13 +1212,13 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
             }
             else
             {
-                MW_LOG("[CH%d][2/4] FW verification bridged to server ✔", device_idx);
+                MW_LOG("[CH%d][2/4] FW verification bridged to server", device_idx);
                 ctx->step = GW_FWV_STEP_WAIT_ACK;
             }
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_FWV_STEP_WAIT_ACK:
             srv_status = SERVER_ReceiveFWVerificationACK(&ctx->srv, &ctx->ack_ok);
             if (srv_status == SERVER_NO_DATA)
@@ -1242,14 +1234,14 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
             }
             else
             {
-                MW_LOG("[CH%d][3/4] ACK received from server: %s ✔", device_idx, ctx->ack_ok ? "ACK_OK" : "ACK_NOK");
+                MW_LOG("[CH%d][3/4] ACK received from server: %s", device_idx, ctx->ack_ok ? "ACK_OK" : "ACK_NOK");
                 ctx->pending_result = ctx->ack_ok ? SGR_MW_OK : SGR_MW_AUTH_FAILED;
                 ctx->step           = GW_FWV_STEP_FORWARD_ACK;
                 status              = SGR_MW_BUSY;
             }
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_FWV_STEP_FORWARD_ACK:
         {
             device_service_ctx_t *dev_ctx_ack = &gw_dev_ctx_table[device_idx];
@@ -1257,13 +1249,13 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
             if (ack_status != DEVICE_OK)
                 MW_LOG("[CH%d][ERROR] Failed to forward ACK to device", device_idx);
             else
-                MW_LOG("[CH%d][4/4] ACK forwarded to device ✔", device_idx);
+                MW_LOG("[CH%d][4/4] ACK forwarded to device", device_idx);
             ctx->step = GW_FWV_STEP_CLOSE;
             status    = SGR_MW_BUSY;
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_FWV_STEP_CLOSE:
             SERVER_Close(&ctx->srv);
             status    = ctx->pending_result;
@@ -1278,11 +1270,11 @@ sgr_mw_status_t sgr_mw_gw_receive_fw_verification(int device_idx)
     return status;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------------------
  * sgr_mw_gw_handle_installation
  * GW bridge: receive type "7" from device, resolve TID via CRC32,
  * forward to Cloud SDK, wait for result, relay back to device.
- * ───────────────────────────────────────────────────────────────────────────── */
+ * ----------------------------------------------------------------------------- */
 typedef enum {
     GW_INST_STEP_RECEIVE = 0,
     GW_INST_STEP_SERVER_OPEN,
@@ -1316,14 +1308,14 @@ sgr_mw_status_t sgr_mw_gw_handle_installation(int device_idx)
 
     switch (ctx->step)
     {
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_INST_STEP_RECEIVE:
         {
             memset(ctx, 0, sizeof(gw_inst_ctx_t));
             ctx->pending_result = SGR_MW_ERROR;
 
-            MW_LOG("[CH%d] ────────────────────────────────────────", device_idx);
-            MW_LOG("[CH%d] GW — Installation bridge", device_idx);
+            MW_LOG("[CH%d] ----------------------------------------", device_idx);
+            MW_LOG("[CH%d] GW - Installation bridge", device_idx);
 
             dev_status = DEVICE_ReceiveInstallationRequest(dev_ctx, &ctx->crc32,
                                                            ctx->cw_install, ctx->rw_install);
@@ -1359,7 +1351,7 @@ sgr_mw_status_t sgr_mw_gw_handle_installation(int device_idx)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_INST_STEP_SERVER_OPEN:
             srv_status = SERVER_Open(&ctx->srv, ctx->tid_bytes);
             if (srv_status != SERVER_OK)
@@ -1375,7 +1367,7 @@ sgr_mw_status_t sgr_mw_gw_handle_installation(int device_idx)
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_INST_STEP_FORWARD_SEND:
             MW_LOG("[CH%d][2/4] Forwarding installation request to Cloud SDK...", device_idx);
             srv_status = SERVER_SendInstallationBridge(&ctx->srv, ctx->tid_bytes,
@@ -1393,7 +1385,7 @@ sgr_mw_status_t sgr_mw_gw_handle_installation(int device_idx)
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_INST_STEP_FORWARD_RECV:
             MW_LOG("[CH%d][3/4] Waiting for installation result from Cloud SDK...", device_idx);
             srv_status = SERVER_ReceiveInstallationBridgeResult(&ctx->srv, &ctx->install_ok);
@@ -1418,7 +1410,7 @@ sgr_mw_status_t sgr_mw_gw_handle_installation(int device_idx)
             status    = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_INST_STEP_REPLY:
             MW_LOG("[CH%d][4/4] Relaying installation result to device...", device_idx);
             dev_status = DEVICE_SendInstallationResult(dev_ctx, ctx->install_ok);
@@ -1431,7 +1423,7 @@ sgr_mw_status_t sgr_mw_gw_handle_installation(int device_idx)
             status    = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case GW_INST_STEP_CLOSE:
             SERVER_Close(&ctx->srv);
             status    = ctx->pending_result;
@@ -1455,10 +1447,10 @@ sgr_mw_status_t sgr_mw_gw_handle_installation(int device_idx)
  * ============================================================================= */
 #if SDK_MODE == DEVICE_MODE
 
-/* ─────────────────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------------------
  * sgr_mw_authenticate_via_gw
  * DEVICE sends CRC32, receives CW, computes RW, sends back, gets result
- * ───────────────────────────────────────────────────────────────────────────── */
+ * ----------------------------------------------------------------------------- */
 typedef enum {
     VGW_STEP_OPEN = 0,
     VGW_STEP_SEND_AUTH_REQUEST,
@@ -1497,32 +1489,9 @@ void sgr_mw_set_event_callback(sgr_sdk_event_cb_t cb, void *ctx)
     s_event_ctx = ctx;
 }
 
-/* Map an SDK auth event to the traceability spec's event_type + result_code
- * (section 1) and append one local log line. No-op unless TRACE_LOG_PATH set. */
-static void vgw_trace(sgr_sdk_event_t event)
-{
-    const char *etype  = "EVENT";
-    const char *result = NULL;
-    switch (event)
-    {
-        case SGR_SDK_EVT_AUTH_STARTED:      etype = "CONNECT";            break;
-        case SGR_SDK_EVT_AUTH_REQUEST_SENT: etype = "PUBLISH";            break;
-        case SGR_SDK_EVT_CW_RECEIVED:       etype = "CHALLENGE_RECEIVED"; break;
-        case SGR_SDK_EVT_RW_COMPUTED:       etype = "RESPONSE_COMPUTED";  break;
-        case SGR_SDK_EVT_RW_SENT:           etype = "PUBLISH";            break;
-        case SGR_SDK_EVT_RESULT_RECEIVED:   etype = "RESULT_RECEIVED";    break;
-        case SGR_SDK_EVT_AUTH_COMPLETE:     etype = "AUTH_COMPLETE"; result = "OK";   break;
-        case SGR_SDK_EVT_AUTH_FAILED:       etype = "AUTH_FAILED";   result = "FAIL"; break;
-        case SGR_SDK_EVT_RETRY:             etype = "RETRY";              break;
-        default:                            etype = "EVENT";              break;
-    }
-    trace_log_event(etype, result, NULL, "auth_via_gw");
-}
-
 /* Fire one event to the registered callback (no-op if none registered). */
 static void vgw_emit(sgr_sdk_event_t event)
 {
-    vgw_trace(event);
     if (s_event_cb != NULL)
         s_event_cb(event, s_event_ctx);
 }
@@ -1547,9 +1516,9 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             if (vgw_ctx.attempt == 0)
                 vgw_emit(SGR_SDK_EVT_AUTH_STARTED);
 
-            MW_LOG("────────────────────────────────────────");
-            MW_LOG("DEVICE — Authenticate via GW");
-            MW_LOG("────────────────────────────────────────");
+            MW_LOG("----------------------------------------");
+            MW_LOG("DEVICE - Authenticate via GW");
+            MW_LOG("----------------------------------------");
 
             srv_status = SERVER_Open(&vgw_srv_ctx, mw_tid);
             if (srv_status != SERVER_OK)
@@ -1580,7 +1549,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                MW_LOG("[1/4] Auth request sent ✔");
+                MW_LOG("[1/4] Auth request sent");
                 vgw_emit(SGR_SDK_EVT_AUTH_REQUEST_SENT);
                 vgw_ctx.step = VGW_STEP_RECEIVE_CW;
             }
@@ -1602,7 +1571,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                MW_LOG("[2/4] Challenge Word received from GW ✔");
+                MW_LOG("[2/4] Challenge Word received from GW");
                 for (int i = 0; i < 32; i++) printf("%02x", vgw_ctx.cw[i]);
                 printf("\n");
                 vgw_emit(SGR_SDK_EVT_CW_RECEIVED);
@@ -1633,7 +1602,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                MW_LOG("[3/4] Response Word computed ✔");
+                MW_LOG("[3/4] Response Word computed");
                 vgw_emit(SGR_SDK_EVT_RW_COMPUTED);
                 vgw_ctx.step = VGW_STEP_SEND_RW;
             }
@@ -1651,7 +1620,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                //MW_LOG("[3/4] CW echo + RW sent to GW ✔");
+                //MW_LOG("[3/4] CW echo + RW sent to GW");
                 MW_LOG("[3/4] CW echo: ");
                 for (int i = 0; i < 32; i++) printf("%02x", vgw_ctx.cw_echo[i]);
                 printf("\n");
@@ -1674,7 +1643,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else if (srv_status == SERVER_AUTH_FAILED)
             {
-                MW_LOG("[4/4] GW rejected device — AUT_NOK ✖");
+                MW_LOG("[4/4] GW rejected device - AUT_NOK");
                 vgw_emit(SGR_SDK_EVT_RESULT_RECEIVED);
                 vgw_ctx.pending_result = SGR_MW_AUTH_FAILED;
                 vgw_ctx.step           = VGW_STEP_CLOSE;
@@ -1682,10 +1651,10 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else if (srv_status == SERVER_CLAIM_TOKEN)
             {
-                /* CR returned CLAIM_TOKEN — device authenticated against the chip
+                /* CR returned CLAIM_TOKEN - device authenticated against the chip
                  * but is not yet bound to a tenant. Forward the claim_token_id
                  * to the app via g_sgr_last_claim_token_id. No Phase 2. */
-                MW_LOG("[4/4] GW relayed CLAIM_TOKEN — token_id=%s", vgw_srv_ctx.claim_token_id);
+                MW_LOG("[4/4] GW relayed CLAIM_TOKEN - token_id=%s", vgw_srv_ctx.claim_token_id);
                 strncpy(g_sgr_last_claim_token_id,
                         vgw_srv_ctx.claim_token_id,
                         sizeof(g_sgr_last_claim_token_id) - 1);
@@ -1703,15 +1672,15 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                /* A verdict frame arrived (AUT_OK) — tell the app before we
+                /* A verdict frame arrived (AUT_OK) - tell the app before we
                  * branch, so the event fires on both the Phase-2 and the
                  * harness-skip path. */
                 vgw_emit(SGR_SDK_EVT_RESULT_RECEIVED);
                 /* Options 2/3 (fault-injection harness) emulate the main-branch
-                 * single-phase flow — finish here without entering Phase 2. */
+                 * single-phase flow - finish here without entering Phase 2. */
                 if (FI_SKIP_PHASE2_ACTIVE)
                 {
-                    MW_LOG("[4/4] GW confirmed device — AUT_OK ✔  (token auth only — host-auth skipped by test harness)");
+                    MW_LOG("[4/4] GW confirmed device - AUT_OK  (token auth only - host-auth skipped by test harness)");
                     vgw_ctx.pending_result = SGR_MW_OK;
                     vgw_ctx.step           = VGW_STEP_CLOSE;
                 }
@@ -1719,14 +1688,14 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
                 {
                     /* Mutual-auth verdict must carry HRW2 (cloud host-auth
                      * response); without it host-auth can't be verified. */
-                    MW_LOG("[4/4] AUT_OK but verdict carried no HRW2 — host-auth not verifiable ✖");
+                    MW_LOG("[4/4] AUT_OK but verdict carried no HRW2 - host-auth not verifiable");
                     vgw_ctx.pending_result = SGR_MW_MUTUAL_AUTH_FAILED;
                     vgw_ctx.step           = VGW_STEP_CLOSE;
                 }
                 else
                 {
-                    MW_LOG("[4/4] GW confirmed device — AUT_OK ✔  (token auth done — verifying host-auth locally)");
-                    /* HRW2 came back inside the verdict — no separate Phase-2
+                    MW_LOG("[4/4] GW confirmed device - AUT_OK  (token auth done - verifying host-auth locally)");
+                    /* HRW2 came back inside the verdict - no separate Phase-2
                      * requestRW; just compute local HRW and compare. */
                     memcpy(vgw_ctx.hrw_cloud, vgw_srv_ctx.hrw2, 16);
                     vgw_ctx.step = VGW_STEP_PHASE2_COMPUTE_HRW_TOKEN;
@@ -1737,11 +1706,11 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
         }
 
         case VGW_STEP_PHASE2_COMPUTE_HRW_TOKEN:
-            /* HCW = RW || RW (32 bytes), then crypto chip → HRW_token (16 bytes). */
+            /* HCW = RW || RW (32 bytes), then crypto chip -> HRW_token (16 bytes). */
             memcpy(vgw_ctx.hcw,      vgw_ctx.rw, 16);
             memcpy(vgw_ctx.hcw + 16, vgw_ctx.rw, 16);
 
-            MW_LOG("[Host auth — 1/2] Computing local HRW on crypto chip (opcode 0x05000800; HCW = RW || RW)...");
+            MW_LOG("[Host auth - 1/2] Computing local HRW on crypto chip (opcode 0x05000800; HCW = RW || RW)...");
             if (crypto_get_rw(vgw_ctx.hcw,       sizeof(vgw_ctx.hcw),
                               vgw_ctx.hrw_token, sizeof(vgw_ctx.hrw_token),
                               NULL, 0,
@@ -1753,10 +1722,10 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                MW_LOG("[Host auth — 1/2] HRW_token: ");
+                MW_LOG("[Host auth - 1/2] HRW_token:");
                 for (int i = 0; i < 16; i++) printf("%02x", vgw_ctx.hrw_token[i]);
                 printf("\n");
-                /* HRW_cloud (HRW2) already arrived in the verdict — compare
+                /* HRW_cloud (HRW2) already arrived in the verdict - compare
                  * locally. No reopen / type-8 / receive (that path is legacy). */
                 vgw_ctx.step = VGW_STEP_PHASE2_COMPARE;
             }
@@ -1767,7 +1736,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             /* GW closes the device-facing socket at the end of its auth flow.
              * Reopen so the GW dispatcher routes our type-8 frame to the
              * HOST_AUTH flow. */
-            MW_LOG("[Host auth · legacy/unused] Reopening connection to GW for host-auth phase...");
+            MW_LOG("[Host auth - legacy/unused] Reopening connection to GW for host-auth phase...");
             SERVER_Close(&vgw_srv_ctx);
             srv_status = SERVER_Open(&vgw_srv_ctx, mw_tid);
             if (srv_status != SERVER_OK)
@@ -1779,7 +1748,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
                 break;
             }
 
-            MW_LOG("[Host auth · legacy/unused] Sending HCW to GW (type 8)...");
+            MW_LOG("[Host auth - legacy/unused] Sending HCW to GW (type 8)...");
             srv_status = SERVER_SendHostAuthRequest(&vgw_srv_ctx, mw_tid, vgw_ctx.hcw);
             if (srv_status != SERVER_OK)
             {
@@ -1802,7 +1771,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else if (srv_status == SERVER_AUTH_FAILED)
             {
-                MW_LOG("[Host auth · legacy/unused] GW reported HOST_AUTH_NOK — cloud could not produce HRW ✖");
+                MW_LOG("[Host auth - legacy/unused] GW reported HOST_AUTH_NOK - cloud could not produce HRW");
                 vgw_ctx.pending_result = SGR_MW_MUTUAL_AUTH_FAILED;
                 vgw_ctx.step           = VGW_STEP_CLOSE;
                 status                 = SGR_MW_BUSY;
@@ -1816,7 +1785,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             }
             else
             {
-                MW_LOG("[Host auth · legacy/unused] HRW_cloud received: ");
+                MW_LOG("[Host auth - legacy/unused] HRW_cloud received:");
                 for (int i = 0; i < 16; i++) printf("%02x", vgw_ctx.hrw_cloud[i]);
                 printf("\n");
                 vgw_ctx.step = VGW_STEP_PHASE2_COMPARE;
@@ -1827,12 +1796,12 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
         case VGW_STEP_PHASE2_COMPARE:
             if (memcmp(vgw_ctx.hrw_token, vgw_ctx.hrw_cloud, 16) == 0)
             {
-                MW_LOG("[Host auth — 2/2] HRW_local == HRW2 — MUTUAL AUTH OK ✔");
+                MW_LOG("[Host auth - 2/2] HRW_local == HRW2 - MUTUAL AUTH OK");
                 vgw_ctx.pending_result = SGR_MW_OK;
             }
             else
             {
-                MW_LOG("[Host auth — 2/2] HRW mismatch — cloud identity NOT verified ✖");
+                MW_LOG("[Host auth - 2/2] HRW mismatch - cloud identity NOT verified");
                 vgw_ctx.pending_result = SGR_MW_MUTUAL_AUTH_FAILED;
             }
             vgw_ctx.step = VGW_STEP_CLOSE;
@@ -1841,7 +1810,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
 
         case VGW_STEP_CLOSE:
             SERVER_Close(&vgw_srv_ctx);
-            /* Both of these are deterministic verdicts — retrying the same flow
+            /* Both of these are deterministic verdicts - retrying the same flow
              * cannot change them, so they must not consume retry attempts:
              *   - MUTUAL_AUTH_FAILED: Phase-2 HRW mismatch.
              *   - CLAIM_TOKEN: the chip authenticated but is unclaimed. The claim
@@ -1862,7 +1831,7 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             else
             {
                 if (vgw_ctx.pending_result == SGR_MW_CLAIM_TOKEN)
-                    MW_LOG("[CLAIM] Token ready to be claimed — token_id=%s (re-auth after claim settles)",
+                    MW_LOG("[CLAIM] Token ready to be claimed - token_id=%s (re-auth after claim settles)",
                            g_sgr_last_claim_token_id);
                 else if (vgw_ctx.pending_result != SGR_MW_OK)
                     MW_LOG("[FAILED] Device authentication failed after %d attempts", vgw_ctx.attempt);
@@ -1895,11 +1864,11 @@ void sgr_mw_authenticate_via_gw_abort(void)
     vgw_ctx.step = VGW_STEP_OPEN;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------------------
  * sgr_mw_verify_fw
  * DEVICE computes SHA-256 of FW, uses hash as CW to get RW from crypto chip,
  * compares it with the RW embedded in the FW image, sends result to GW.
- * ───────────────────────────────────────────────────────────────────────────── */
+ * ----------------------------------------------------------------------------- */
 typedef enum {
     FWV_STEP_INIT = 0,
     FWV_STEP_COMPUTE_HASH,
@@ -1936,7 +1905,7 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
 
     switch (fwv_ctx.step)
     {
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_INIT:
         {
             int saved_attempt      = fwv_ctx.attempt;
@@ -1947,20 +1916,20 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             fwv_ctx.fw_size        = fw_size;
             fwv_ctx.fw_rw          = fw_rw;
 
-            MW_LOG("────────────────────────────────────────");
-            MW_LOG("DEVICE — FW Verification");
-            MW_LOG("────────────────────────────────────────");
+            MW_LOG("----------------------------------------");
+            MW_LOG("DEVICE - FW Verification");
+            MW_LOG("----------------------------------------");
 
             fwv_ctx.step = FWV_STEP_COMPUTE_HASH;
             status       = SGR_MW_BUSY;
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_COMPUTE_HASH:
             MW_LOG("[1/4] Computing SHA-256 of firmware (%lu bytes)...", (unsigned long)fwv_ctx.fw_size);
             sha256_compute(fwv_ctx.fw_data, fwv_ctx.fw_size, fwv_ctx.hash);
-            MW_LOG("[1/4] SHA-256 computed ✔");
+            MW_LOG("[1/4] SHA-256 computed");
             #if MW_DEBUG
             printf("[MW] HASH: ");
             for (int i = 0; i < 32; i++) printf("%02x", fwv_ctx.hash[i]);
@@ -1970,7 +1939,7 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             status       = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_GET_RW:
             MW_LOG("[2/4] Requesting RW from crypto chip (host-auth; HASH as CW)...");
             if (crypto_get_rw(fwv_ctx.hash,       sizeof(fwv_ctx.hash),
@@ -1984,7 +1953,7 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             }
             else
             {
-                MW_LOG("[2/4] RW computed by crypto chip ✔");
+                MW_LOG("[2/4] RW computed by crypto chip");
                 /* Save for sgr_mw_installation */
                 memcpy(mw_rw_verify, fwv_ctx.rw_computed, 16);
                 mw_rw_verify_valid = true;
@@ -2001,23 +1970,23 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_COMPARE:
             if (memcmp(fwv_ctx.rw_computed, fwv_ctx.fw_rw, 16) == 0)
             {
-                MW_LOG("[3/4] RW match — firmware integrity verified ✔");
+                MW_LOG("[3/4] RW match - firmware integrity verified");
                 fwv_ctx.pending_result = SGR_MW_OK;
             }
             else
             {
-                MW_LOG("[3/4] RW mismatch — firmware integrity FAILED ✖");
+                MW_LOG("[3/4] RW mismatch - firmware integrity FAILED");
                 fwv_ctx.pending_result = SGR_MW_AUTH_FAILED;
             }
             fwv_ctx.step = FWV_STEP_OPEN;
             status       = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_OPEN:
             srv_status = SERVER_Open(&fwv_srv_ctx, mw_tid);
             if (srv_status != SERVER_OK)
@@ -2028,13 +1997,12 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             }
             else
             {
-                trace_log_event("CONNECT", NULL, NULL, "fw_verify");
                 fwv_ctx.step = FWV_STEP_SEND_RESULT;
             }
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_SEND_RESULT:
         {
             bool fw_ok = (fwv_ctx.pending_result == SGR_MW_OK);
@@ -2048,32 +2016,14 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             }
             else
             {
-                MW_LOG("[4/5] Result sent ✔ — waiting for cloud ACK...");
-                if (trace_log_debug_enabled())
-                {
-                    /* Debug level (spec §1 request_data): log the RW data element
-                     * MASKED to first-4 + last-4 — never the raw crypto value. */
-                    char rw_hex[33], rw_masked[24], req[64];
-                    for (int i = 0; i < 16; i++)
-                        snprintf(rw_hex + i * 2, sizeof(rw_hex) - i * 2,
-                                 "%02x", fwv_ctx.rw_computed[i]);
-                    trace_log_mask(rw_hex, rw_masked, sizeof(rw_masked));
-                    snprintf(req, sizeof(req), "{\"rw\":\"%s\"}", rw_masked);
-                    trace_log_event_ex("PUBLISH", fw_ok ? "FW_OK" : "FW_NOK", NULL,
-                                       "fw_verify result sent to gateway", req);
-                }
-                else
-                {
-                    trace_log_event("PUBLISH", fw_ok ? "FW_OK" : "FW_NOK", NULL,
-                                    "fw_verify result sent to gateway");
-                }
+                MW_LOG("[4/5] Result sent - waiting for cloud ACK...");
                 fwv_ctx.step = FWV_STEP_WAIT_ACK;
             }
             status = SGR_MW_BUSY;
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_WAIT_ACK:
         {
             bool ack_ok    = false;
@@ -2091,9 +2041,7 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             }
             else
             {
-                MW_LOG("[5/5] Cloud ACK received: %s ✔", ack_ok ? "ACK_OK" : "ACK_NOK");
-                trace_log_event("RESULT_RECEIVED", ack_ok ? "ACK_OK" : "ACK_NOK",
-                                ack_ok ? "ACK_OK" : "ACK_NOK", "fw_verify cloud ack");
+                MW_LOG("[5/5] Cloud ACK received: %s", ack_ok ? "ACK_OK" : "ACK_NOK");
                 if (!ack_ok)
                     fwv_ctx.pending_result = SGR_MW_AUTH_FAILED;
                 fwv_ctx.step = FWV_STEP_CLOSE;
@@ -2102,7 +2050,7 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case FWV_STEP_CLOSE:
             SERVER_Close(&fwv_srv_ctx);
             if (fwv_ctx.pending_result == SGR_MW_COMM_ERROR && fwv_ctx.attempt < MAX_RETRIES)
@@ -2129,12 +2077,12 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
     return status;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
+/* -----------------------------------------------------------------------------
  * sgr_mw_installation
  * DEVICE builds CW_install = RW_verify || RW_verify, sends to crypto chip,
  * sends type "7" to GW with CRC32 + CW_install + RW_install, waits for result.
  * Requires prior successful sgr_mw_verify_fw (mw_rw_verify_valid must be true).
- * ───────────────────────────────────────────────────────────────────────────── */
+ * ----------------------------------------------------------------------------- */
 typedef enum {
     INST_STEP_INIT = 0,
     INST_STEP_GET_RW,
@@ -2164,12 +2112,12 @@ sgr_mw_status_t sgr_mw_installation(void)
 
     switch (inst_ctx.step)
     {
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case INST_STEP_INIT:
         {
             if (!mw_rw_verify_valid)
             {
-                MW_LOG("[ERROR] No valid RW_verify — run sgr_mw_verify_fw first");
+                MW_LOG("[ERROR] No valid RW_verify - run sgr_mw_verify_fw first");
                 return SGR_MW_ERROR;
             }
 
@@ -2178,9 +2126,9 @@ sgr_mw_status_t sgr_mw_installation(void)
             inst_ctx.attempt        = saved_attempt;
             inst_ctx.pending_result = SGR_MW_ERROR;
 
-            MW_LOG("────────────────────────────────────────");
-            MW_LOG("DEVICE — Installation");
-            MW_LOG("────────────────────────────────────────");
+            MW_LOG("----------------------------------------");
+            MW_LOG("DEVICE - Installation");
+            MW_LOG("----------------------------------------");
 
             /* CW_install = RW_verify || RW_verify */
             memcpy(inst_ctx.cw_install,      mw_rw_verify, 16);
@@ -2191,7 +2139,7 @@ sgr_mw_status_t sgr_mw_installation(void)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case INST_STEP_GET_RW:
             MW_LOG("[1/3] Requesting RW_install from crypto chip (host-auth)...");
             if (crypto_get_rw(inst_ctx.cw_install, sizeof(inst_ctx.cw_install),
@@ -2205,13 +2153,13 @@ sgr_mw_status_t sgr_mw_installation(void)
             }
             else
             {
-                MW_LOG("[1/3] RW_install computed ✔");
+                MW_LOG("[1/3] RW_install computed");
                 inst_ctx.step = INST_STEP_OPEN;
             }
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case INST_STEP_OPEN:
             srv_status = SERVER_Open(&inst_srv_ctx, mw_tid);
             if (srv_status != SERVER_OK)
@@ -2227,7 +2175,7 @@ sgr_mw_status_t sgr_mw_installation(void)
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case INST_STEP_SEND:
             MW_LOG("[2/3] Sending installation request to GW...");
             srv_status = SERVER_SendInstallationRequest(&inst_srv_ctx, mw_tid,
@@ -2241,13 +2189,12 @@ sgr_mw_status_t sgr_mw_installation(void)
             }
             else
             {
-                trace_log_event("PUBLISH", NULL, NULL, "installation request sent to gateway");
                 inst_ctx.step = INST_STEP_RECV;
             }
             status = SGR_MW_BUSY;
             break;
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case INST_STEP_RECV:
         {
             bool install_ok = false;
@@ -2260,20 +2207,17 @@ sgr_mw_status_t sgr_mw_installation(void)
             }
             if (srv_status == SERVER_OK)
             {
-                MW_LOG("[3/3] Installation authorized ✔");
-                trace_log_event("RESULT_RECEIVED", "INSTALL_OK", "INSTALL_OK", "installation result");
+                MW_LOG("[3/3] Installation authorized");
                 inst_ctx.pending_result = SGR_MW_OK;
             }
             else if (srv_status == SERVER_AUTH_FAILED)
             {
-                MW_LOG("[3/3] Installation denied ✖");
-                trace_log_event("RESULT_RECEIVED", "INSTALL_NOK", "INSTALL_NOK", "installation result");
+                MW_LOG("[3/3] Installation denied");
                 inst_ctx.pending_result = SGR_MW_AUTH_FAILED;
             }
             else
             {
                 MW_LOG("[ERROR] Failed to receive installation result (status=%d)", srv_status);
-                trace_log_event("RESULT_RECEIVED", "COMM_ERROR", NULL, "installation result error");
                 inst_ctx.pending_result = SGR_MW_COMM_ERROR;
             }
             inst_ctx.step = INST_STEP_CLOSE;
@@ -2281,7 +2225,7 @@ sgr_mw_status_t sgr_mw_installation(void)
             break;
         }
 
-        /* ─────────────────────────────────────────────────────────────────── */
+        /* ------------------------------------------------------------------- */
         case INST_STEP_CLOSE:
             SERVER_Close(&inst_srv_ctx);
             if (inst_ctx.pending_result == SGR_MW_COMM_ERROR && inst_ctx.attempt < MAX_RETRIES)
@@ -2374,7 +2318,7 @@ sgr_mw_status_t sgr_mw_gw_run(int device_idx)
             break;
     }
 
-    /* Flow done — return to idle */
+    /* Flow done - return to idle */
     if (result != SGR_MW_BUSY)
         gw_active_flow[device_idx] = GW_FLOW_IDLE;
 

@@ -57,6 +57,14 @@
 #define MQTT_PORT           (getenv("MQTT_PORT")   ? atoi(getenv("MQTT_PORT")) : 1883)
 #define MQTT_USER           (getenv("MQTT_USER") && getenv("MQTT_USER")[0] ? getenv("MQTT_USER") : "sandgrain")
 #define MQTT_PASS           (getenv("MQTT_PASS") && getenv("MQTT_PASS")[0] ? getenv("MQTT_PASS") : "admin")
-#define MQTT_KEEPALIVE      60
+/* Keepalive drives how often the client PINGs. 60s left the mostly-idle
+ * gw_log / gw_presence / gw_whitelist connections silent long enough for a
+ * NAT or firewall to reap the flow; the next PINGREQ then went into a dead
+ * socket and libmosquitto tore the connection down itself with
+ * MOSQ_ERR_KEEPALIVE (rc=19), which is the "drops every few minutes" seen
+ * against a remote broker. A shorter interval keeps the flow warm and
+ * detects a genuine break sooner, at the cost of a couple of packets a
+ * minute. Env-overridable so the field can tune it without a rebuild. */
+#define MQTT_KEEPALIVE      (getenv("MQTT_KEEPALIVE") ? atoi(getenv("MQTT_KEEPALIVE")) : 30)
 
 #endif /* POC_CONFIG_H */

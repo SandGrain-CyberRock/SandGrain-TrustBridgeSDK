@@ -9,7 +9,7 @@
  * TrustBridge backend exposes the current enrolled TIDs at
  *   GET {BE_URL}/devices/whitelist   (plain text, one TID per line)
  * which the gateway curls into this file (see refresh_whitelist() in main_gw.c),
- * so registering a device in TrustBridge auto-authorizes it — no recompile.
+ * so registering a device in TrustBridge auto-authorizes it - no recompile.
  *
  * (Ported from trustbridge-sdk-v3, which had this dynamic loader; the new SDK
  * had reverted it to a hardcoded static array.)
@@ -40,7 +40,7 @@ int auth_db_load_whitelist(const char *file_path)
 
     FILE *f = fopen(file_path, "r");
     if (!f) {
-        printf("[AUTH_DB] Whitelist file not found: %s — keeping current list (%u)\n",
+        printf("[AUTH_DB] Whitelist file not found: %s - keeping current list (%u)\n",
                file_path, auth_db_whitelist_count);
         return auth_db_whitelist_count;
     }
@@ -75,7 +75,7 @@ int auth_db_load_whitelist(const char *file_path)
     printf("[AUTH_DB] Loaded %d device(s) from whitelist: %s\n", count, file_path);
 
     /* The backend reorders this list (re-adding a device moves it to the end),
-     * and the runtime tables are keyed by position — re-bind them or the gateway
+     * and the runtime tables are keyed by position - re-bind them or the gateway
      * will resolve a CRC32 to whichever TID now occupies that slot. */
     auth_db_rebind_whitelist();
 

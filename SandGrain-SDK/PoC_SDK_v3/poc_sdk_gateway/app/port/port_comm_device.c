@@ -410,3 +410,11 @@ void port_comm_device_forward_run_auth(const char *id, int mode)
     }
     pthread_mutex_unlock(&g_send_lock);
 }
+
+void port_comm_device_shutdown(void)
+{
+    /* Nothing to release on the TCP port: the sockets are process-owned, so the
+     * kernel closes them on exit and the peer sees the link drop immediately.
+     * The BLE port needs a real teardown (BlueZ owns the connection there and
+     * outlives us), hence the shared entry point. */
+}

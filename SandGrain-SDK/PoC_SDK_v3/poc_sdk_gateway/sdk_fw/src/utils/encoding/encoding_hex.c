@@ -24,7 +24,7 @@ int bytes_to_hex(const uint8_t *in, size_t in_len, char *out, size_t out_size)
  * Convierte HEX ASCII a bytes
  * hex      : string HEX (ej "A1B2C3")
  * out      : buffer binario de salida
- * out_size : tamaño del buffer binario
+ * out_size : tamano del buffer binario
  *
  * return 0 si OK, -1 si error
  */

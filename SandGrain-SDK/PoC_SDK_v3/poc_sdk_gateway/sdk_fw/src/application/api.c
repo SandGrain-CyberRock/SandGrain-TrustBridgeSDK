@@ -1,11 +1,11 @@
 /* =============================================================================
  * sdk_sgr_user_api.c
  *
- * Application Layer — implementation
+ * Application Layer - implementation
  *
  * SDK_MODE controls which functions are compiled:
- *   DEVICE_MODE  — Device authenticates via Gateway
- *   GATEWAY_MODE — Gateway authenticates itself + handles device requests
+ *   DEVICE_MODE  - Device authenticates via Gateway
+ *   GATEWAY_MODE - Gateway authenticates itself + handles device requests
  * ============================================================================= */
 
 #include <string.h>
@@ -274,7 +274,7 @@ sgr_sdk_status_t SGR_SDK_GW_Handle_Installation(void)
 {
     sgr_mw_status_t mw_status = SGR_MW_BUSY;
 
-    /* Step 1 — wait for FW Verification result from device (type "6") */
+    /* Step 1 - wait for FW Verification result from device (type "6") */
     do
     {
         mw_status = sgr_mw_gw_receive_fw_verification(0);
@@ -288,7 +288,7 @@ sgr_sdk_status_t SGR_SDK_GW_Handle_Installation(void)
         return SGR_SDK_ERROR;
     }
 
-    /* Step 2 — wait for Installation request from device (type "7") */
+    /* Step 2 - wait for Installation request from device (type "7") */
     mw_status = SGR_MW_BUSY;
     do
     {
@@ -368,6 +368,11 @@ sgr_sdk_status_t SGR_SDK_GW_Run(void)
     if (result == SGR_MW_OK)          return SGR_SDK_OK;
     if (result == SGR_MW_AUTH_FAILED) return SGR_SDK_AUTH_FAILED;
     if (result == SGR_MW_COMM_ERROR)  return SGR_SDK_COMM_ERROR;
+    /* A pending tenant claim is a normal first-enrollment state. Collapsing it
+     * into SGR_SDK_ERROR made the gateway print "Error (status = 1)" on a run
+     * that had in fact worked - the middleware had already logged the verdict
+     * and relayed it to the device. */
+    if (result == SGR_MW_CLAIM_TOKEN) return SGR_SDK_CLAIM_TOKEN_READY;
     return SGR_SDK_ERROR;
 }
 

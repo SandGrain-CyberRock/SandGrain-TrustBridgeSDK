@@ -51,10 +51,10 @@
 #include "crypto.h"
 #include "encoding_hex.h"
 #include "config_poc.h"
-#include "trace_log.h"   /* local traceability log — enabled by TRACE_LOG_PATH */
 
-/* Serializes SDK calls between the menu (main thread) and BE-driven MQTT
- * triggers (mosquitto background thread started by mosquitto_loop_start). */
+/* Serializes SDK calls (and the gateway link) between the menu on the main
+ * thread and BE-driven triggers relayed by the gateway, which arrive on a
+ * background thread: the poller on TCP, the Bluetooth RX thread on BLE. */
 #ifdef WIN32
     static CRITICAL_SECTION g_sdk_mutex;
     static int              g_sdk_mutex_inited = 0;
@@ -73,6 +73,12 @@
 /* Populated by the middleware when the cloud returns CLAIM_TOKEN.
  * Defined in sdk_fw/src/middleware/sgr_mw.c. */
 extern char g_sgr_last_claim_token_id[];
+
+#ifdef DEV_BLE
+/* BLE peripheral port (port_comm_ble.c): TID for the "HELLO <tid>" presence
+ * announcement the gateway proxies to TrustBridge as retained MQTT status. */
+extern void port_comm_ble_set_tid(const char *tid_hex);
+#endif
 
 /* First-enrollment auto re-auth: an unclaimed chip's first auth returns
  * CLAIM_TOKEN (not AUTH_OK). The BE claims the token; once that claim settles a
@@ -284,12 +290,15 @@ static char g_tid_hex[65] = {0};
 
 static void print_menu(void);   /* defined near main(); reprinted after a triggered run */
 
-/* Portable millisecond sleep for the idle poll backoff. */
+/* Portable millisecond sleep for the idle poll backoff. Only the TCP poller
+ * needs it; BLE triggers arrive on a callback, so it would be unused there. */
+#ifndef DEV_BLE
 #ifdef WIN32
     static void sdk_sleep_ms(int ms) { Sleep((DWORD)ms); }
 #else
     static void sdk_sleep_ms(int ms) { usleep((useconds_t)ms * 1000); }
 #endif
+#endif /* !DEV_BLE */
 
 /* Run auth with fault-injection flags matching the menu's options 1/2/3.
  * Caller must hold g_sdk_mutex. */
@@ -332,7 +341,10 @@ static void run_auth_listener(int mode)
     else                                      printf("  ✖ Authentication ERROR (status=%d)\n", st);
 }
 
-/* Portable background thread for the trigger listener. */
+/* Portable background thread for the trigger listener. Only the TCP transport
+ * polls for triggers; the BLE port pushes them via a callback instead, so this
+ * machinery would be unused (and warn) in a DEV_BLE build. */
+#ifndef DEV_BLE
 #ifdef WIN32
     #define THREAD_RET     DWORD WINAPI
     #define THREAD_RETVAL  0
@@ -344,6 +356,7 @@ static void run_auth_listener(int mode)
     static int       g_listener_started = 0;
 #endif
 static volatile int g_listener_run = 0;
+#endif /* !DEV_BLE */
 
 /* Resolve this device's TID (crypto chip, else DEVICE_TID env) into g_tid_hex. */
 static int resolve_device_tid(void)
@@ -362,6 +375,97 @@ static int resolve_device_tid(void)
     printf("[LISTENER] Cannot determine TID (no crypto chip, no DEVICE_TID) — listener disabled\n");
     return -1;
 }
+
+#ifdef DEV_BLE
+/* =============================================================================
+ * Gateway-relayed triggers (TrustBridge -> gateway -> here, over BLE)
+ *
+ * The gateway subscribes this device's cmd/run_auth topic (it learned the TID
+ * from the HELLO we send on link-up) and relays what arrives as a
+ * "RUN_AUTH <mode>" line, which port_comm_ble.c turns into the callback below.
+ *
+ * The callback runs on the BLE thread - the same thread that delivers every
+ * inbound frame - so it may only signal. Authenticating there would starve the
+ * flow it just started of its replies. Hence this worker.
+ * ============================================================================= */
+extern void port_comm_ble_set_trigger_cb(void (*cb)(int mode));
+extern void port_comm_ble_enable_trigger_proxy(int enable);
+
+static pthread_t       g_ble_trigger_thread;
+static pthread_mutex_t g_ble_trigger_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_ble_trigger_cv   = PTHREAD_COND_INITIALIZER;
+static int             g_ble_trigger_mode;    /* 0 = nothing pending */
+
+/* BLE thread: signal only. */
+static void on_ble_trigger(int mode)
+{
+    if (mode < 1 || mode > 3) mode = 1;
+    pthread_mutex_lock(&g_ble_trigger_lock);
+    g_ble_trigger_mode = mode;
+    pthread_cond_signal(&g_ble_trigger_cv);
+    pthread_mutex_unlock(&g_ble_trigger_lock);
+}
+
+static void *ble_trigger_worker(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        pthread_mutex_lock(&g_ble_trigger_lock);
+        while (g_ble_trigger_mode == 0)
+            pthread_cond_wait(&g_ble_trigger_cv, &g_ble_trigger_lock);
+        int mode = g_ble_trigger_mode;
+        g_ble_trigger_mode = 0;
+        pthread_mutex_unlock(&g_ble_trigger_lock);
+
+        sdk_mutex_lock();
+        run_auth_listener(mode);   /* same path the menu takes */
+        sdk_mutex_unlock();
+
+        printf("\n");
+        print_menu();   /* reprint the whole menu so it stays visible + usable */
+    }
+    return NULL;
+}
+
+/* The device is MQTT-free, so it always wants the gateway to relay triggers.
+ * BLE_TRIGGER_PROXY=0 turns the relay off for testing (menu-only device). */
+static void start_ble_trigger_proxy(void)
+{
+    int enable = 1;
+    const char *env = getenv("BLE_TRIGGER_PROXY");
+    if (env && *env) enable = (atoi(env) != 0);
+
+    port_comm_ble_enable_trigger_proxy(enable);
+    if (!enable) {
+        printf("[TRIGGER] Relayed triggers disabled by BLE_TRIGGER_PROXY=0\n");
+        return;
+    }
+
+    port_comm_ble_set_trigger_cb(on_ble_trigger);
+    if (pthread_create(&g_ble_trigger_thread, NULL, ble_trigger_worker, NULL) != 0) {
+        printf("[TRIGGER] cannot start the trigger worker - relayed triggers disabled\n");
+        port_comm_ble_set_trigger_cb(NULL);
+        port_comm_ble_enable_trigger_proxy(0);
+        return;
+    }
+    printf("[TRIGGER] Asking the gateway to relay TrustBridge triggers over BLE\n");
+}
+
+/* On BLE the relay is wired up unconditionally above, so --listen has nothing
+ * extra to start: the device accepts a relayed RUN_AUTH whenever the gateway
+ * is connected. Kept so main() needs no transport #ifdef around listen mode. */
+static int start_listener(void)
+{
+    printf("[READY] BLE link; waiting for TrustBridge RUN_AUTH triggers\n\n");
+    return 0;
+}
+
+static void stop_listener(void)
+{
+    /* The BLE port owns the link and tears it down in its own shutdown. */
+}
+
+#else  /* !DEV_BLE: TCP transport, persistent link polled for RUN_AUTH */
 
 /* Keep the persistent gateway link up and run auth when the gateway relays a
  * "RUN_AUTH <mode>" trigger. Holds g_sdk_mutex around the poll + auth so it can't
@@ -442,6 +546,7 @@ static void stop_listener(void)
 #endif
     port_comm_shutdown();
 }
+#endif /* DEV_BLE */
 
 /* ──────────────────────────────────────────────────────────────────────────────
  * Progress event handler (demo).
@@ -517,10 +622,6 @@ int main(int argc, char **argv)
      * menu prints and the streamed flow logs stay trapped in the pipe buffer. */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
-    /* Open the local traceability log (no-op unless TRACE_LOG_PATH is set). The
-     * device id is stamped later, once the SDK reads the chip TID at init. */
-    trace_log_init();
-
     sgr_sdk_status_t status = SGR_SDK_ERROR;
     int option = 0;
 
@@ -568,15 +669,35 @@ int main(int argc, char **argv)
     /* Initialize the SDK-call mutex once before either input surface can run. */
     sdk_mutex_init();
 
-    /* BE-driven listener (RUN_MODE=listener or --listen): opens the persistent
-     * gateway link (HELLO + TRIGGER) in a background thread and runs auth on a
-     * relayed RUN_AUTH, then falls through so the menu runs in parallel on the
-     * main thread. Both paths serialize SDK calls via g_sdk_mutex. */
-    int listen = (getenv("RUN_MODE") && strcmp(getenv("RUN_MODE"), "listener") == 0);
-    for (int i = 1; i < argc; i++)
-        if (strcmp(argv[i], "--listen") == 0) listen = 1;
-    if (listen)
-        start_listener();   /* failure logs and disables the listener; menu still runs */
+    /* Resolve the TID once up front. The BLE port needs it to release its HELLO
+     * (which is what drives presence in TrustBridge), and the listener needs it
+     * to announce this device to the gateway. */
+    int tid_ok = (resolve_device_tid() == 0);
+    if (tid_ok)
+        printf("[DEVICE] TID: %s\n", g_tid_hex);
+
+#ifdef DEV_BLE
+    /* Enable the relay BEFORE handing over the TID: the TID is what releases the
+     * HELLO, and the HELLO is what carries the TRIGGER capability flag. */
+    start_ble_trigger_proxy();
+    if (tid_ok)
+        port_comm_ble_set_tid(g_tid_hex);
+    else
+        printf("  ! No TID for the presence announce (chip unreachable?)\n");
+#endif
+
+    /* BE-driven listener (RUN_MODE=listener or --listen). On TCP this opens the
+     * persistent gateway link (HELLO + TRIGGER) in a background thread and runs
+     * auth on a relayed RUN_AUTH; on BLE the relay is already live from above.
+     * Either way it falls through so the menu runs in parallel on the main
+     * thread, and both paths serialize SDK calls via g_sdk_mutex. */
+    {
+        int listen = (getenv("RUN_MODE") && strcmp(getenv("RUN_MODE"), "listener") == 0);
+        for (int i = 1; i < argc; i++)
+            if (strcmp(argv[i], "--listen") == 0) listen = 1;
+        if (listen)
+            start_listener();   /* failure logs and disables the listener; menu still runs */
+    }
 
     /* ------------------------------------------------------------------
      * Menu loop — run multiple operations in the same session.
@@ -585,45 +706,7 @@ int main(int argc, char **argv)
     while (1)
     {
         print_menu();
-
-        /* scanf returns the count of items matched: 1 for a valid option, 0 for
-         * non-numeric input, and EOF when stdin is closed / at end-of-input.
-         * IGNORING it makes the menu busy-spin: on EOF `option` keeps its prior
-         * value (0 on the first pass), so the menu + BIST reprint forever. That
-         * happens whenever the device runs without an interactive stdin — e.g. a
-         * headless run_all.sh / tmux pane with no operator typing. Handle both. */
-        int got = scanf("%d", &option);
-        if (got == EOF)
-        {
-            if (listen)
-            {
-                /* BE-driven mode: no operator, but the background trigger listener
-                 * must keep running. Park the main thread on it (do NOT
-                 * stop_listener() — that would tear down the thread we want alive);
-                 * the process ends when it's signalled/killed. */
-                printf("\n[MENU] stdin closed — running headless; TrustBridge triggers stay active (Ctrl-C to quit).\n");
-                fflush(stdout);
-#ifdef WIN32
-                if (g_listener_thread) WaitForSingleObject(g_listener_thread, INFINITE);
-#else
-                if (g_listener_started) pthread_join(g_listener_thread, NULL);
-                else while (g_listener_run) sdk_sleep_ms(200);
-#endif
-            }
-            else
-            {
-                printf("\n  stdin closed — exiting.\n");
-            }
-            break;   /* cleanup runs after the loop */
-        }
-        if (got == 0)
-        {
-            /* Non-numeric token: drain the rest of the line so the same offending
-             * character isn't re-read into an infinite loop on the next pass. */
-            int c; while ((c = getchar()) != '\n' && c != EOF) { }
-            printf("  ✖ Invalid option\n\n");
-            continue;
-        }
+        scanf("%d", &option);
         printf("\n");
 
         /* ------------------------------------------------------------------
@@ -634,7 +717,6 @@ int main(int argc, char **argv)
             printf("  Exiting.\n\n");
             stop_listener();
             sdk_mutex_destroy();
-            trace_log_close();
             return 0;
         }
 
@@ -798,10 +880,5 @@ int main(int argc, char **argv)
         printf("=====================================================\n\n");
     }
 
-    /* Reached only via `break` (stdin closed). The interactive exit path
-     * (option 7) cleans up and returns directly inside the loop. */
-    stop_listener();
-    sdk_mutex_destroy();
-    trace_log_close();
     return 0;
 }

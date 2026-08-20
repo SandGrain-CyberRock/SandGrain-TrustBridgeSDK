@@ -98,9 +98,9 @@ typedef enum
  * @brief Authentication direction for crypto_get_rw.
  *
  * The chip exposes two distinct opcodes, one per direction:
- *   - TOKEN_AUTH (0x03000800): used for token→cloud authentication (Phase 1).
+ *   - TOKEN_AUTH (0x03000800): used for token->cloud authentication (Phase 1).
  *     Chip computes the value the cloud's tokenAuth/replyRW endpoint expects.
- *   - HOST_AUTH  (0x05000800): used for cloud→token authentication (Phase 2),
+ *   - HOST_AUTH  (0x05000800): used for cloud->token authentication (Phase 2),
  *     FW verification and Installation. Chip computes the value the cloud's
  *     requestHRW/checkRequestHRWStatus endpoint produces.
  *

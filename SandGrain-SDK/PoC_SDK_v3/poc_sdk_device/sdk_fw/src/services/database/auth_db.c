@@ -80,7 +80,7 @@ auth_db_status_t auth_db_register(const char *tid_hex, uint32_t *crc32_out)
         else if (active_table[idx])
         {
             *crc32_out = crc32_table[idx];
-            printf("[AUTH_DB] Already registered — crc32=0x%08X\n", *crc32_out);
+            printf("[AUTH_DB] Already registered - crc32=0x%08X\n", *crc32_out);
             status = AUTH_DB_ALREADY_ACTIVE;
         }
         else
@@ -98,7 +98,7 @@ auth_db_status_t auth_db_register(const char *tid_hex, uint32_t *crc32_out)
             ctx_table[idx].state  = AUTH_STATE_IDLE;
             ctx_table[idx].result = AUTH_RESULT_NONE;
 
-            printf("[AUTH_DB] Registered — idx=%d | crc32=0x%08X | tid=%.16s...\n",
+            printf("[AUTH_DB] Registered - idx=%d | crc32=0x%08X | tid=%.16s...\n",
                    idx, crc32, tid_hex);
 
             status = AUTH_DB_OK;

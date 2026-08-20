@@ -1,11 +1,11 @@
 /* =============================================================================
  * sdk_sgr_user_api.c
  *
- * Application Layer — implementation
+ * Application Layer - implementation
  *
  * SDK_MODE controls which functions are compiled:
- *   DEVICE_MODE  — Device authenticates via Gateway
- *   GATEWAY_MODE — Gateway authenticates itself + handles device requests
+ *   DEVICE_MODE  - Device authenticates via Gateway
+ *   GATEWAY_MODE - Gateway authenticates itself + handles device requests
  * ============================================================================= */
 
 #include <string.h>
@@ -168,7 +168,7 @@ sgr_sdk_status_t SGR_SDK_Authenticate_Via_GW_Poll(void)
     if (mw_status == SGR_MW_BUSY)
         return SGR_SDK_BUSY;
 
-    /* Terminal — release the flow so a fresh start is possible. */
+    /* Terminal - release the flow so a fresh start is possible. */
     vgw_flow_active = false;
     return map_mw_to_sdk(mw_status);
 }
@@ -178,7 +178,7 @@ sgr_sdk_auth_step_t SGR_SDK_Authenticate_Via_GW_GetStep(void)
     if (!vgw_flow_active)
         return SGR_SDK_AUTH_STEP_IDLE;
 
-    /* Map MW internal step (vgw_step_t) → public step. Order matches the
+    /* Map MW internal step (vgw_step_t) -> public step. Order matches the
      * vgw_step_t enum in sgr_mw.c. */
     static const sgr_sdk_auth_step_t map[] = {
         SGR_SDK_AUTH_STEP_OPEN,
@@ -365,7 +365,7 @@ sgr_sdk_status_t SGR_SDK_GW_Handle_Installation(void)
 {
     sgr_mw_status_t mw_status = SGR_MW_BUSY;
 
-    /* Step 1 — wait for FW Verification result from device (type "6") */
+    /* Step 1 - wait for FW Verification result from device (type "6") */
     do
     {
         mw_status = sgr_mw_gw_receive_fw_verification(0);
@@ -379,7 +379,7 @@ sgr_sdk_status_t SGR_SDK_GW_Handle_Installation(void)
         return SGR_SDK_ERROR;
     }
 
-    /* Step 2 — wait for Installation request from device (type "7") */
+    /* Step 2 - wait for Installation request from device (type "7") */
     mw_status = SGR_MW_BUSY;
     do
     {

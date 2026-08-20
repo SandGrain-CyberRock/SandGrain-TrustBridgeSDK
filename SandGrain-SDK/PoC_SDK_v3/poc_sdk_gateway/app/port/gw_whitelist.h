@@ -1,8 +1,6 @@
 #ifndef GW_WHITELIST_H
 #define GW_WHITELIST_H
 
-#include <stddef.h>   /* size_t */
-
 /* =============================================================================
  * gw_whitelist.h
  *
@@ -40,11 +38,5 @@ int gw_whitelist_take_dirty(void);
 
 /* Close the presence/whitelist MQTT connection at shutdown. */
 void gw_whitelist_close(void);
-
-/* Resolve the gateway's own broker-facing IPv4 into `out` (the same identity
- * gw_status uses); writes "gw" on any failure. Lets other port modules stamp a
- * consistent gateway id (e.g. port_comm adds it to req envelopes as
- * gateway_id for cloud traceability). */
-void gw_whitelist_resolve_ip(char *out, size_t n);
 
 #endif /* GW_WHITELIST_H */

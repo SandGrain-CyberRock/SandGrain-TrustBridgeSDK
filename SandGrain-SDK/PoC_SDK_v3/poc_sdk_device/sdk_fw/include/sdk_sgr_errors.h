@@ -23,8 +23,8 @@ typedef enum
 
     /* Authentication / flow */
     SGR_SDK_AUTH_FAILED,
-    SGR_SDK_MUTUAL_AUTH_FAILED,    /* Phase-2 (cloud→device) HRW mismatch        */
-    SGR_SDK_CLAIM_TOKEN_READY,     /* CR returned CLAIM_TOKEN — device awaits
+    SGR_SDK_MUTUAL_AUTH_FAILED,    /* Phase-2 (cloud->device) HRW mismatch        */
+    SGR_SDK_CLAIM_TOKEN_READY,     /* CR returned CLAIM_TOKEN - device awaits
                                       tenant claim. ID in g_sgr_last_claim_token_id */
 
     /* Registration */
@@ -33,7 +33,7 @@ typedef enum
 
     /* Gateway */
     SGR_SDK_NO_DATA,            /* No data available from DEVICE */
-    SGR_SDK_BUSY                /* Dispatcher: no channel has data yet — call again */
+    SGR_SDK_BUSY                /* Dispatcher: no channel has data yet - call again */
 
 } sgr_sdk_status_t;    
 

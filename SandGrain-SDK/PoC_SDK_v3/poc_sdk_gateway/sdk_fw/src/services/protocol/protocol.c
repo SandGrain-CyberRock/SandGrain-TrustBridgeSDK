@@ -31,7 +31,7 @@ static int jsmn_eq(const char *json, const jsmntok_t *tok, const char *s);
 static void token_to_str(const char *json, const jsmntok_t *tok, char *dst, size_t dst_size);
 
 /* ============================================================
- * TX FRAMES (Token → Server)
+ * TX FRAMES (Token -> Server)
  * ============================================================ */
 /*
  * Build JSON frame requesting a Challenge Word (CW) from server.
@@ -59,7 +59,7 @@ int Frame_Get_CW_From_Server(char *out_buf, size_t out_size, const sgr_proto2_ct
     if (json_init(out_buf, out_size, &offset) != JSON_OK)
         return -1;
 
-    /* Message type: "0" → Request CW */
+    /* Message type: "0" -> Request CW */
     if (json_add_string(out_buf, out_size, &offset, "type", "0", 1) != JSON_OK)
         return -1;
 
@@ -341,17 +341,17 @@ int RX_Extract_And_Check_Field(const rx_response_t *rx, const char *field_name, 
     RX_DBG("[STEP 1] Validate parameters\n");
     if (!rx || !field_name || !out_value || out_value_size == 0)
     {
-        RX_DBG(" ❌ Invalid parameters\n");
+        RX_DBG(" Invalid parameters\n");
         return -1;
     }
     /* pattern[] = "\"<field_name>\":\"%255[^\"]\""
-     * Fixed overhead: 2+3+10 = 15 chars + NUL → max field_name = sizeof(pattern)-16 */
+     * Fixed overhead: 2+3+10 = 15 chars + NUL -> max field_name = sizeof(pattern)-16 */
     if (strlen(field_name) > sizeof(pattern) - 16u)
     {
-        RX_DBG(" ❌ field_name too long (%zu > %zu)\n", strlen(field_name), sizeof(pattern) - 16u);
+        RX_DBG(" field_name too long (%zu > %zu)\n", strlen(field_name), sizeof(pattern) - 16u);
         return -1;
     }
-    RX_DBG(" ✔ Parameters OK\n");
+    RX_DBG(" Parameters OK\n");
 
     /* ------------------------------------------------- */
     RX_DBG("[STEP 2] Payload content\n");
@@ -364,7 +364,7 @@ int RX_Extract_And_Check_Field(const rx_response_t *rx, const char *field_name, 
     const char *p = strstr(rx->payload, pattern_prefix);
     if (!p)
     {
-        RX_DBG(" ❌ Field '%s' NOT FOUND in payload\n", field_name);
+        RX_DBG(" Field '%s' NOT FOUND in payload\n", field_name);
         return -2;
     }
 
@@ -376,11 +376,11 @@ int RX_Extract_And_Check_Field(const rx_response_t *rx, const char *field_name, 
 
     if (sscanf(p, pattern, value) != 1)
     {
-        RX_DBG(" ❌ Failed to extract field '%s'\n", field_name);
+        RX_DBG(" Failed to extract field '%s'\n", field_name);
         return -2;
     }
 
-    RX_DBG(" ✔ Field extracted\n");
+    RX_DBG(" Field extracted\n");
     RX_DBG(" value         : '%s'\n", value);
     RX_DBG(" value length  : %zu\n", strlen(value));
 
@@ -392,7 +392,7 @@ int RX_Extract_And_Check_Field(const rx_response_t *rx, const char *field_name, 
         const char *c = strstr(rx->crc, pattern_prefix);
         if (!c)
         {
-            RX_DBG(" ❌ CRC for field '%s' NOT FOUND\n", field_name);
+            RX_DBG(" CRC for field '%s' NOT FOUND\n", field_name);
             return -3;
         }
 
@@ -404,11 +404,11 @@ int RX_Extract_And_Check_Field(const rx_response_t *rx, const char *field_name, 
 
         if (sscanf(c, pattern, crc_rx) != 1)
         {
-            RX_DBG(" ❌ Failed to extract CRC for '%s'\n", field_name);
+            RX_DBG(" Failed to extract CRC for '%s'\n", field_name);
             return -3;
         }
 
-        RX_DBG(" ✔ CRC extracted from RX\n");
+        RX_DBG(" CRC extracted from RX\n");
         RX_DBG(" crc_rx        : %s\n", crc_rx);
 
         /* ------------------------------------------------- */
@@ -439,12 +439,12 @@ int RX_Extract_And_Check_Field(const rx_response_t *rx, const char *field_name, 
 
         if (strcasecmp(crc_calc_hex, crc_rx) != 0)
         {
-            RX_DBG(" ❌ CRC MISMATCH\n");
+            RX_DBG(" CRC MISMATCH\n");
             RX_DBG("===============================================\n");
             return -4;
         }
 
-        RX_DBG(" ✔ CRC MATCH\n");
+        RX_DBG(" CRC MATCH\n");
     #else
         RX_DBG("[STEP 3-5] CRC validation DISABLED by configuration\n");
     #endif
@@ -456,7 +456,7 @@ int RX_Extract_And_Check_Field(const rx_response_t *rx, const char *field_name, 
     out_value[out_value_size - 1] = '\0';
 
     RX_DBG(" out_value     : %s\n", out_value);
-    RX_DBG(" ✔ SUCCESS\n");
+    RX_DBG(" SUCCESS\n");
     RX_DBG("===============================================\n");
 
     return 0;

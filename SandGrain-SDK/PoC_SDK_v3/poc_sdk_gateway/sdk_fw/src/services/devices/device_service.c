@@ -2,8 +2,8 @@
  * device_service.c
  *
  * Internal flow per operation:
- *   Send:    build JSON → port_comm_device_send
- *   Receive: port_comm_device_receive → parse JSON → extract fields
+ *   Send:    build JSON -> port_comm_device_send
+ *   Receive: port_comm_device_receive -> parse JSON -> extract fields
  * ============================================================================= */
 
 #include "device_service.h"
@@ -21,7 +21,7 @@
 
 /* =============================================================================
  * prv_get_pending
- * Internal helper — fills rx_buf from pending buffer if available, else reads.
+ * Internal helper - fills rx_buf from pending buffer if available, else reads.
  * ============================================================================= */
 static bool prv_get_pending(device_service_ctx_t *ctx, uint8_t *rx_buf, uint16_t *rx_len)
 {
@@ -63,7 +63,7 @@ gw_frame_type_t DEVICE_PeekFrameType(device_service_ctx_t *ctx)
 
 /* =============================================================================
  * DEVICE_Init
- * Initializes device communication port — bind + listen (GW mode)
+ * Initializes device communication port - bind + listen (GW mode)
  * ============================================================================= */
 device_status_t DEVICE_Init(device_service_ctx_t *ctx, const char *device_id)
 {
@@ -87,7 +87,7 @@ device_status_t DEVICE_Init(device_service_ctx_t *ctx, const char *device_id)
 
 /* =============================================================================
  * DEVICE_ReceiveAuthRequest
- * Receives type "4" from device — extracts CRC32
+ * Receives type "4" from device - extracts CRC32
  * ============================================================================= */
 device_status_t DEVICE_ReceiveAuthRequest(device_service_ctx_t *ctx, uint32_t *crc32_out)
 {
@@ -188,7 +188,7 @@ device_status_t DEVICE_SendCW(device_service_ctx_t *ctx, const uint8_t *cw)
 
 /* =============================================================================
  * DEVICE_ReceiveRW
- * Receives type "5" from device — extracts CW echo + RW
+ * Receives type "5" from device - extracts CW echo + RW
  * ============================================================================= */
 device_status_t DEVICE_ReceiveRW(device_service_ctx_t *ctx, uint8_t *cw_out, uint8_t *rw_out)
 {
@@ -274,7 +274,7 @@ device_status_t DEVICE_ReceiveRW(device_service_ctx_t *ctx, uint8_t *cw_out, uin
 
 /* =============================================================================
  * DEVICE_ReceiveFWVerificationResult
- * Receives type "6" from device — extracts CRC32 + FW_VERIFY
+ * Receives type "6" from device - extracts CRC32 + FW_VERIFY
  * ============================================================================= */
 device_status_t DEVICE_ReceiveFWVerificationResult(device_service_ctx_t *ctx,
                                                     uint32_t             *crc32_out,
@@ -323,7 +323,7 @@ device_status_t DEVICE_ReceiveFWVerificationResult(device_service_ctx_t *ctx,
     fw_ptr += strlen("\"FW_VERIFY\":\"");
     *fw_ok_out = (strncmp(fw_ptr, "FW_OK", 5) == 0);
 
-    /* Extract RW (32 hex chars → 16 bytes) */
+    /* Extract RW (32 hex chars -> 16 bytes) */
     char *rw_ptr = strstr((char *)rx_buf, "\"RW\":\"");
     if (rw_ptr == NULL)
         return DEVICE_PARSE_ERROR;
@@ -347,7 +347,7 @@ device_status_t DEVICE_ReceiveFWVerificationResult(device_service_ctx_t *ctx,
 
 /* =============================================================================
  * DEVICE_SendFWVerificationACK
- * Send type "6_ack" to device — cloud confirmation that FW verification was processed.
+ * Send type "6_ack" to device - cloud confirmation that FW verification was processed.
  * Frame: {"type":"6_ack","payload":{"status":"ACK_OK/ACK_NOK"}}
  * ============================================================================= */
 device_status_t DEVICE_SendFWVerificationACK(device_service_ctx_t *ctx, bool ack_ok)
@@ -373,7 +373,7 @@ device_status_t DEVICE_SendFWVerificationACK(device_service_ctx_t *ctx, bool ack
 
 /* =============================================================================
  * DEVICE_ReceiveInstallationRequest
- * Receives type "7" from device — extracts CRC32, CW_install (32 bytes), RW_install (16 bytes)
+ * Receives type "7" from device - extracts CRC32, CW_install (32 bytes), RW_install (16 bytes)
  * ============================================================================= */
 device_status_t DEVICE_ReceiveInstallationRequest(device_service_ctx_t *ctx,
                                                    uint32_t             *crc32_out,
@@ -483,7 +483,7 @@ device_status_t DEVICE_SendInstallationResult(device_service_ctx_t *ctx, bool in
 
 /* =============================================================================
  * DEVICE_ReceiveHostAuthRequest
- * Receives type "8" from device — extracts CRC32 + HCW (32 bytes)
+ * Receives type "8" from device - extracts CRC32 + HCW (32 bytes)
  * Phase 2 of mutual authentication: device asks cloud to compute HRW from HCW.
  * ============================================================================= */
 device_status_t DEVICE_ReceiveHostAuthRequest(device_service_ctx_t *ctx,

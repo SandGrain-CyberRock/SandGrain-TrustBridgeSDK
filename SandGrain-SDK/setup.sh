@@ -100,51 +100,6 @@ python -m pip install python-dotenv paho-mqtt aiohttp cryptography
 python -m pip install -e "$SDK_PKG_DIR"
 deactivate
 
-# --------------------------------------------------------------------------
-# 4) WSL only: keep Windows-interop (wt.exe) working under systemd
-# --------------------------------------------------------------------------
-# Enabling systemd in WSL (/etc/wsl.conf [boot] systemd=true) makes
-# systemd-binfmt skip registration, which drops the WSLInterop handler. Windows
-# .exe launches then fail with "MZ: command not found", so run_all.sh can't open
-# Windows Terminal windows. Install a tiny oneshot unit that re-registers the
-# handler on every boot. Idempotent; never fatal (a build/test box without
-# systemd or sudo just skips it and run_all.sh falls back to tmux).
-if grep -qiE "microsoft|wsl" /proc/version 2>/dev/null; then
-  say "WSL detected — ensuring Windows-interop (WSLInterop) persists under systemd"
-  ISUDO=""
-  [[ "$(id -u)" -ne 0 ]] && { command -v sudo >/dev/null 2>&1 && ISUDO="sudo" || ISUDO=""; }
-  if [[ "$(id -u)" -ne 0 && -z "$ISUDO" ]]; then
-    say "  Skipped: need root/sudo to install the interop unit. If wt.exe fails, re-run: sudo bash setup.sh"
-  elif ! command -v systemctl >/dev/null 2>&1; then
-    say "  Skipped: systemd not present (run_all.sh will fall back to tmux)."
-  else
-    if $ISUDO tee /etc/systemd/system/wsl-interop.service >/dev/null <<'UNIT'
-[Unit]
-Description=Register WSL Windows interop binfmt (systemd-binfmt is skipped on WSL)
-After=systemd-binfmt.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/sh -c 'test -e /proc/sys/fs/binfmt_misc/WSLInterop || echo ":WSLInterop:M::MZ::/init:PF" > /proc/sys/fs/binfmt_misc/register'
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-    then
-      $ISUDO systemctl daemon-reload 2>/dev/null || true
-      $ISUDO systemctl enable --now wsl-interop.service 2>/dev/null || true
-      if [[ -e /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
-        say "  Windows-interop active — wt.exe works and run_all.sh can open Terminal windows."
-      else
-        say "  Installed wsl-interop.service; it registers interop after 'wsl --shutdown' + reopen."
-      fi
-    else
-      say "  Could not write the interop unit (permission?) — skipping; run_all.sh will fall back to tmux."
-    fi
-  fi
-fi
-
 say "Setup complete."
 echo "    Next:  bash run_all.sh        (Linux / WSL)"
 echo "       or  .\\run_all.ps1         (Windows PowerShell)"

@@ -14,10 +14,10 @@
 /* Authentication mode command (variant 2) */
 #define HEADER_MODE_AUTHENTICATION_2 (uint32_t)0x05000800
 
-/* Built-in self-test command — variant-dependent opcode.
+/* Built-in self-test command - variant-dependent opcode.
  * Per the Python reference (CyberRock_Token.py):
- *   SGB → 0xFF000000
- *   SGA → 0x80000000
+ *   SGB -> 0xFF000000
+ *   SGA -> 0x80000000
  */
 #define HEADER_MODE_BIST_SGB         (uint32_t)0xFF000000
 #define HEADER_MODE_BIST_SGA         (uint32_t)0x80000000
@@ -53,11 +53,11 @@ static uint8_t rx_super_buffer_bist[BIST_TXRX_LEN_BYTES];
 
 /* ===================== BIST RESPONSE OFFSETS =====================
  * Mirrors the Python reference script CyberRock_Token.py
- *   PCC : bytes 5..20  (16 bytes)  — first half of TID
- *   ID  : bytes 21..36 (16 bytes)  — second half of TID
- *   RW  : bytes 38..53 (16 bytes)  — RWL part 1
- *   EK  : bytes 54..69 (16 bytes)  — RWL part 2
- *   BIST byte : index 71           — 0x50 == PASS
+ *   PCC : bytes 5..20  (16 bytes)  - first half of TID
+ *   ID  : bytes 21..36 (16 bytes)  - second half of TID
+ *   RW  : bytes 38..53 (16 bytes)  - RWL part 1
+ *   EK  : bytes 54..69 (16 bytes)  - RWL part 2
+ *   BIST byte : index 71           - 0x50 == PASS
  * ============================================================== */
 #define BIST_OFFSET_PCC        5
 #define BIST_OFFSET_ID         21
@@ -71,7 +71,7 @@ static uint8_t tx_header[4];
 /* Dummy byte required by protocol */
 static uint8_t dummy = 0xFF;
 
-/* Active chip variant — set by the application at startup. */
+/* Active chip variant - set by the application at startup. */
 sgr_chip_variant_t g_sgr_chip_variant = SGR_CHIP_SGA;
 
 sgr_crypto_status_t crypto_get_id(uint8_t *id_buffer, uint16_t id_size)
@@ -164,8 +164,8 @@ sgr_crypto_status_t crypto_get_rw(const uint8_t           *cw_buffer,
     else
     {
         /* Pick chip opcode by auth direction:
-         *   TOKEN_AUTH (0x03000800) → token→cloud (Phase 1)
-         *   HOST_AUTH  (0x05000800) → cloud→token (Phase 2 / FW / Install) */
+         *   TOKEN_AUTH (0x03000800) -> token->cloud (Phase 1)
+         *   HOST_AUTH  (0x05000800) -> cloud->token (Phase 2 / FW / Install) */
         const uint32_t header_mode = (mode == SGR_CRYPTO_MODE_HOST_AUTH)
                                        ? HEADER_MODE_AUTHENTICATION_2
                                        : HEADER_MODE_AUTHENTICATION;
@@ -258,7 +258,7 @@ sgr_crypto_status_t crypto_bist(sgr_crypto_bist_result_t *result)
     }
 
     /* Pick BIST opcode based on the active chip variant.
-     * SGB → 0xFF000000   SGA → 0x80000000
+     * SGB -> 0xFF000000   SGA -> 0x80000000
      */
     const uint32_t header_mode = (g_sgr_chip_variant == SGR_CHIP_SGB)
                                    ? HEADER_MODE_BIST_SGB
@@ -293,7 +293,7 @@ sgr_crypto_status_t crypto_bist(sgr_crypto_bist_result_t *result)
     }
     else
     {
-        /* Disassemble response — offsets mirror the Python reference */
+        /* Disassemble response - offsets mirror the Python reference */
         memcpy(result->pcc, &rx_super_buffer_bist[BIST_OFFSET_PCC], BIST_PCC_SIZE_BYTES);
         memcpy(result->id,  &rx_super_buffer_bist[BIST_OFFSET_ID],  BIST_ID_SIZE_BYTES);
         memcpy(result->rw,  &rx_super_buffer_bist[BIST_OFFSET_RW],  BIST_RW_SIZE_BYTES);

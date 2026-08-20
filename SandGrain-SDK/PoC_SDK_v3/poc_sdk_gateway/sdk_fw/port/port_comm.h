@@ -9,7 +9,7 @@
  * port_comm_ctx_t
  *
  * All state for a single MQTT connection.
- * Each GW channel has its own context — no shared state.
+ * Each GW channel has its own context - no shared state.
  * ============================================================================= */
 typedef struct {
     struct mosquitto *mosq;
@@ -26,11 +26,6 @@ typedef struct {
     uint16_t rx_size;
     bool     rx_available;
     bool     connected;
-
-    /* Gateway self-identity (broker-facing IP) stamped onto each published req
-     * envelope as "gateway_id", so the cloud trace can attribute the relaying
-     * gateway. Resolved once in port_comm_init(); "gw" if detection fails. */
-    char     gateway_id[64];
 } port_comm_ctx_t;
 
 bool port_comm_init   (port_comm_ctx_t *ctx, const char *device_id);

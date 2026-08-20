@@ -4,7 +4,6 @@ import asyncio
 import logging
 from typing import Any
 
-from . import trace_log
 from .config import load_config
 from .dispatcher import dispatch
 from .mqtt_transport import MQTTTransport
@@ -35,14 +34,6 @@ async def run_app() -> None:
     """
     cfg = load_config()
     loop = asyncio.get_running_loop()
-
-    # Local end-to-end traceability (no-op unless TRACE_LOG_PATH is set). Must run
-    # after basicConfig so the JSONL handler attaches to the configured loggers.
-    trace_log.init_trace()
-
-    # In trustbridge mode the requests originate from TrustBridge relaying through
-    # the gateway; in standalone mode there is no BE. This labels request_originator.
-    request_originator = "trust_bridge" if cfg.credentials_source == "trustbridge" else "standalone"
 
     # Auto-claim is a TrustBridge responsibility: in trustbridge mode the cloud
     # forwards the CyberRock claim_token_id to BE (which owns the tenant-api
@@ -90,24 +81,6 @@ async def run_app() -> None:
 
             assert env is not None
             msg_type: Any = env.msg_type
-
-            # Establish the per-request trace envelope (V4 section 3). Field names
-            # follow this deployment's concrete topology: the device that
-            # originated this auth action, and the gateway relaying it (identified
-            # by the IP it stamped on the envelope). In V4 spec terms these are the
-            # "leaf" and the "edge_node" respectively. app_message_seq is scoped
-            # per-device here (not globally unique), used for gap/duplicate
-            # detection only, not as a correlation key.
-            device_id = route.device_id
-            trace_log.set_context(
-                request_originator=request_originator,
-                gateway_id=env.gateway_id,
-                event_scope="device",
-                device_id=device_id,
-                app_seq_scope="device",
-                app_message_seq=trace_log.next_app_seq("device", device_id),
-                action=route.action,
-            )
 
             # Cross-validation: topic action must be compatible with msg_type.
             if not is_valid_action(msg_type, route.action):
@@ -170,13 +143,6 @@ async def run_app() -> None:
         )
 
         transport.start()
-
-        # Wire the cloud_log MQTT sink onto the live transport (no-op unless
-        # TRACE_LOG_MQTT enabled it). QoS 0 fire-and-forget, matching gw_log.
-        trace_log.set_cloud_log_publisher(
-            lambda topic, body: transport.publish(topic, body, qos=0)
-        )
-
         log.info(
             "POC Cloud App started. Listening for MANY devices (wildcard subscription). SDK pool size=%s",
             POOL_SIZE,

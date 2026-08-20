@@ -40,6 +40,32 @@ LDFLAGS := \
         -lpthread
 endif
 
+# ================== DEVICE<->GATEWAY TRANSPORT ==================
+# Default: TCP (port_comm.c). `make DEV_BLE=1` (Linux/BlueZ only): act as a BLE
+# peripheral exposing the Nordic UART Service, so a Raspberry Pi can replace the
+# nRF board as the device. Swaps in port_comm_ble.c and links GLib/GIO (BlueZ
+# over D-Bus). The gateway (BLE central) and cloud are unchanged.
+ifeq ($(DEV_BLE),1)
+COMM_SRC := port/port_comm_ble.c
+CFLAGS   += -DDEV_BLE=1 $(shell pkg-config --cflags gio-2.0)
+LDFLAGS  += $(shell pkg-config --libs gio-2.0)
+else
+COMM_SRC := port/port_comm.c
+endif
+
+# ================== CRYPTO-CHIP TRANSPORT ==================
+# Default: USB-serial dongle on /dev/ttyACM0 (port_spi_usb.c). `make DEV_SPI=1`
+# (Linux only, e.g. Raspberry Pi): talk to the SGT1001 wired directly to the
+# SPI header via /dev/spidev0.0 (port_spi_dev.c) — same one-frame full-duplex
+# protocol as the nRF54L15 Zephyr port. Combine with DEV_BLE=1 for a Pi that
+# is both a BLE peripheral and reads the chip over SPI.
+ifeq ($(DEV_SPI),1)
+SPI_SRC := port/port_spi_dev.c
+CFLAGS  += -DDEV_SPI=1
+else
+SPI_SRC := port/port_spi_usb.c
+endif
+
 TARGET := test_device
 
 # ================== INCLUDE PATHS ==================
@@ -82,13 +108,12 @@ SDK_SRCS := \
 
 POC_SRCS := \
     main_device.c \
-    port/port_comm.c \
+    $(COMM_SRC) \
     port/comm_adapter.c \
     port/port_comm_device.c \
     port/port_delay.c \
-    port/port_spi_usb.c \
+    $(SPI_SRC) \
     port/port_random.c \
-    port/trace_log.c \
     fault_injection/fi_device.c
     
 

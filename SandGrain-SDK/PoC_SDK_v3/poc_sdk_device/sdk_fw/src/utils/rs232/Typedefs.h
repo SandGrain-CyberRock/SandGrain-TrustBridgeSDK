@@ -5,16 +5,16 @@
 ** $Name:  $      Definition of global new types
 ** $Log: Typedefs.h,v $
 ** Revision 1.7  2015/12/01 10:36:43  iarmendariz
-** mejora gestion liberaci√≥n memoria usada del heap.
+** mejora gestion liberaciA3n memoria usada del heap.
 **
 ** Revision 1.6  2015/12/01 10:31:12  iarmendariz
 ** ajustes necesarios para compilar en linux yocto
 **
 ** Revision 1.5  2015/10/06 13:29:39  iarmendariz
-** Correcci√≥n de fuga de memoria y adaptaci√≥n para linux.
+** CorrecciA3n de fuga de memoria y adaptaciA3n para linux.
 **
 ** Revision 1.4  2013/05/06 21:12:43  iarmendariz
-** Cambios introducidos para que funciones en LINUX. (faltar√≠a adaptar linea serie pero TCP funciona OK).
+** Cambios introducidos para que funciones en LINUX. (faltarA?a adaptar linea serie pero TCP funciona OK).
 **
 ** Revision 1.3  2012/12/14 08:07:29  iarmendariz
 ** Unificacion de puertos entre bajo nivel de driver y alto nivel.
@@ -23,7 +23,7 @@
 ** Revision 1.2  2011/12/16 07:30:29  iarmendariz
 ** rs232.c: Correccion lectura con timeout, siempre perdia 1ms aunque tuviese el caracter esperando (1 ms entre caracteres).
 ** tiny_shell.c: aumento numero argumentos de 12 a 40
-** win32shell.cpp: ajuste tamaÒo buffer rs232 mediante define en la cabecera del fichero.
+** win32shell.cpp: ajuste tamano buffer rs232 mediante define en la cabecera del fichero.
 ** sdc.c y micro_pc.c: depuracion en funciones de recepcion de caracteres (para evitar perdidas) y mejora gestion del buffer del driver.
 **
 ** Revision 1.1  2011/06/17 16:48:19  iarmendariz
@@ -31,20 +31,20 @@
 ** Movido el de renesas y no se ha compilado aun.
 **
 ** Revision 1.1  2011/03/14 10:44:46  iarmendariz
-** AÒadidos ficheros generales.
+** Anadidos ficheros generales.
 **
 ** Revision 1.5  2005/12/02 07:18:52  jamenabar
 ** Resuelve bug 323.
 **
 ** Revision 1.4  2005/02/21 13:21:15  jamenabar
-** Eliminado el tipo status_t. Ahora cada driver generar· su drvname_status_t.
+** Eliminado el tipo status_t. Ahora cada driver generara su drvname_status_t.
 ** Cambio del tipos bool_t, de unsigned int a unsigned char.
 **
 ** Revision 1.3  2005/02/11 08:28:29  jamenabar
-** AÒadido el nuevo tipo 'char_t'.
+** Anadido el nuevo tipo 'char_t'.
 **
 ** Revision 1.2  2005/02/02 11:27:01  jamenabar
-** ReestructuraciÛn de directorios de la TCU.
+** Reestructuracion de directorios de la TCU.
 **
 ** Revision 1.1  2005/01/14 07:02:05  jamenabar
 ** Initial revision

@@ -1,7 +1,7 @@
 /* =============================================================================
  * sgr_mw.h
  *
- * Middleware — unified header for all authentication flows
+ * Middleware - unified header for all authentication flows
  *
  * GATEWAY_MODE:
  *   - sgr_mw_init
@@ -50,7 +50,7 @@ extern char g_sgr_last_claim_token_id[SGR_CLAIM_TOKEN_ID_LEN];
 /* ===================== COMMON ===================== */
 
 /**
- * Initialize middleware — reads TID from crypto chip.
+ * Initialize middleware - reads TID from crypto chip.
  * Must be called once before any other function.
  */
 sgr_mw_status_t sgr_mw_init(void);
@@ -65,18 +65,18 @@ void sgr_mw_set_event_callback(sgr_sdk_event_cb_t cb, void *ctx);
 #if SDK_MODE == GATEWAY_MODE
 
 /**
- * Phase 1 — GW authenticates itself to Server (Token→Server).
+ * Phase 1 - GW authenticates itself to Server (Token->Server).
  */
 sgr_mw_status_t sgr_mw_authentication_token_to_server(void);
 
 /**
- * Phase 2 — GW authenticates itself to Server (Server→Token).
+ * Phase 2 - GW authenticates itself to Server (Server->Token).
  */
 sgr_mw_status_t sgr_mw_authentication_server_to_token(void);
 
 /**
  * GW handles incoming device authentication request.
- * Orchestrates full DEVICE↔GW↔SERVER flow.
+ * Orchestrates full DEVICE<->GW<->SERVER flow.
  */
 sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx);
 
@@ -109,7 +109,7 @@ sgr_mw_status_t sgr_mw_gw_run(int device_idx);
 /**
  * Device authenticates via Gateway.
  * Sends CRC32, receives CW, computes RW, returns result.
- * Non-blocking FSM — returns SGR_MW_BUSY until done.
+ * Non-blocking FSM - returns SGR_MW_BUSY until done.
  */
 sgr_mw_status_t sgr_mw_authenticate_via_gw(void);
 
@@ -129,7 +129,7 @@ void sgr_mw_authenticate_via_gw_abort(void);
  * Verify firmware integrity using the crypto chip.
  * Computes SHA-256 of fw_data, uses hash as CW to get RW from chip,
  * compares with fw_rw, and sends result (FW_OK/FW_NOK) to Gateway.
- * Non-blocking FSM — returns SGR_MW_BUSY until done.
+ * Non-blocking FSM - returns SGR_MW_BUSY until done.
  */
 sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
                                    uint32_t       fw_size,
@@ -140,7 +140,7 @@ sgr_mw_status_t sgr_mw_verify_fw(const uint8_t *fw_data,
  * Builds CW_install = RW_verify || RW_verify (from previous sgr_mw_verify_fw),
  * gets RW_install from crypto chip, sends type "7" to GW, waits for result.
  * Must be called after a successful sgr_mw_verify_fw.
- * Non-blocking FSM — returns SGR_MW_BUSY until done.
+ * Non-blocking FSM - returns SGR_MW_BUSY until done.
  */
 sgr_mw_status_t sgr_mw_installation(void);
 

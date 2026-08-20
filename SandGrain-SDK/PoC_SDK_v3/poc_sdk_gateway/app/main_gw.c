@@ -16,10 +16,10 @@
 #include <string.h>     /* memcmp - whitelist content compare */
 #include <time.h>       /* time() — throttle whitelist refresh */
 #include <sys/stat.h>   /* stat() — skip reload when whitelist unchanged */
+#include <signal.h>    /* SIGINT/SIGTERM - release BLE links before exiting */
 #include "sdk_sgr_user_api.h"
 #include "crypto.h"
 #include "gw_log.h"
-#include "trace_log.h"     /* local traceability log — enabled by TRACE_LOG_PATH */
 #include "gw_whitelist.h"  /* MQTT-driven whitelist + gateway presence (TrustBridge mode) */
 #include "gw_presence.h"       /* per-device presence + BE trigger proxy (device MQTT-free) */
 #include "port_comm_device.h"  /* port_comm_device_forward_run_auth (the trigger forwarder) */
@@ -78,6 +78,17 @@ static int on_auth_db_miss(uint32_t missing_crc32)
     (void)missing_crc32;
     gw_whitelist_announce_online();
     return reload_whitelist_from_file();
+}
+
+/* Set from a signal handler, so nothing but an assignment happens in there.
+ * The run loop checks it each pass and SGR_SDK_GW_Run() returns promptly, so
+ * a Ctrl-C or a systemd stop is acted on within one iteration. */
+static volatile sig_atomic_t g_stop;
+
+static void prv_on_signal(int sig)
+{
+    (void)sig;
+    g_stop = 1;
 }
 
 int main(void)
@@ -193,9 +204,6 @@ int main(void)
      * messages and the terminal auth_result (published from the FSM). */
     gw_log_init();
 
-    /* Open the local traceability log (no-op unless TRACE_LOG_PATH is set). */
-    trace_log_init();
-
     /* TrustBridge mode (BE_URL set): receive the authorized-TID whitelist over
      * MQTT instead of polling the BE's HTTP endpoint. gw_whitelist announces the
      * gateway "online" so the BE pushes the current list, and subscribes for
@@ -220,10 +228,17 @@ int main(void)
      * TrustBridge mode; the static list in standalone). */
     reload_whitelist_from_file();
 
+    /* A systemd restart sends SIGTERM. Dying on it with the BLE links still up
+     * leaves BlueZ holding the connections, and a peripheral with a leftover
+     * connection cannot re-advertise - the device then looks permanently gone
+     * until someone disconnects it by hand. */
+    signal(SIGINT,  prv_on_signal);
+    signal(SIGTERM, prv_on_signal);
+
     printf("[GW] Listening for device requests...\n");
     printf("-----------------------------------------------------\n");
 
-    while (1)
+    while (!g_stop)
     {
         /* Reload the whitelist when gw_whitelist reports the file changed
          * (TrustBridge pushed an update over MQTT). Standalone never sets this,
@@ -242,11 +257,17 @@ int main(void)
             printf("\n[GW] Flow completed — AUTH FAILED\n");
         else if (status == SGR_SDK_COMM_ERROR)
             printf("\n[GW] Communication error (status = %d)\n", status);
+        else if (status == SGR_SDK_CLAIM_TOKEN_READY)
+            printf("\n[GW] Flow completed - claim pending, device will re-auth\n");
         else
             printf("\n[GW] Error (status = %d)\n", status);
 
         printf("-----------------------------------------------------\n");
     }
+
+    printf("\n[GW] Stopping - releasing device links...\n");
+    port_comm_device_shutdown();
+    printf("[GW] Stopped.\n");
 
     return 0;
 }

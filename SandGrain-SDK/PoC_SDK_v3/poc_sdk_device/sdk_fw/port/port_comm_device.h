@@ -1,7 +1,7 @@
 /* =============================================================================
  * port_comm_device.h
  *
- * Per-connection transport for the device ↔ gateway link.
+ * Per-connection transport for the device <-> gateway link.
  *
  * The struct is OPAQUE - its layout is defined by the transport implementation
  * (e.g. POSIX/winsock sockets, UART, BLE). The shipped SDK header has no

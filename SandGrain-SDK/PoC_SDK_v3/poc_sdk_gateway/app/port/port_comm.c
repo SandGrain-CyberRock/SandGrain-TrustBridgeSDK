@@ -8,7 +8,6 @@
 #include "port_comm.h"
 #include "sdk_sgr_config.h"
 #include "config_poc.h"
-#include "gw_whitelist.h"   /* gw_whitelist_resolve_ip() — gateway self IP */
 
 #include <string.h>
 #include <stdio.h>
@@ -22,6 +21,19 @@
     #define LOG_DEBUG(fmt, ...)  do {} while(0)
     #define LOG_FAULT(fmt, ...)  do {} while(0)
 #endif
+
+/* The same line, tagged with the last four hex digits of the device TID.
+ *
+ * With several devices in flight these lines interleave, and every TID starts
+ * with the same sixteen zeros - the head tells you nothing, the tail is what
+ * identifies a device. Without this, a two-device log reads as though one
+ * channel had consumed another channel's reply.
+ *
+ * Derived from the response topic instead of stored on the context, so
+ * port_comm_ctx_t stays byte-identical across the TCP, BLE and cellular ports.
+ * Layout: "sandgrain/v1/" is 13 chars, then 64 of TID, then "/rsp/#". */
+#define TID_TAG(ctx)  (strlen((ctx)->topic_rsp) >= 77 ? (ctx)->topic_rsp + 73 : "????")
+#define LOG_CTX(ctx, fmt, ...)  LOG_DEBUG("[%.4s] " fmt, TID_TAG(ctx), ##__VA_ARGS__)
 
 /* ── Fault injection ─────────────────────────────────────── */
 extern volatile int fi_attempt;
@@ -84,7 +96,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc)
     if (rc == 0)
     {
         ctx->connected = true;
-        LOG_DEBUG("Connected");
+        LOG_CTX(ctx, "Connected");
         mosquitto_subscribe(mosq, NULL, ctx->topic_rsp, 1);
     }
     else
@@ -111,7 +123,7 @@ static void on_message(struct mosquitto *mosq, void *obj,
     ctx->rx_size      = (uint16_t)msg->payloadlen;
     ctx->rx_available = true;
 
-    LOG_DEBUG("RX received (%u bytes) | data=%.*s",
+    LOG_CTX(ctx, "RX received (%u bytes) | data=%.*s",
               ctx->rx_size, ctx->rx_size, ctx->rx_buffer);
 }
 
@@ -125,8 +137,6 @@ bool port_comm_init(port_comm_ctx_t *ctx, const char *device_id)
 
     memset(ctx, 0, sizeof(port_comm_ctx_t));
 
-    LOG_DEBUG("Initializing communication port .....");
-
     snprintf(ctx->topic_req_cw,           sizeof(ctx->topic_req_cw),           "sandgrain/v1/%s/req/requestCW",            device_id);
     snprintf(ctx->topic_reply_rw,         sizeof(ctx->topic_reply_rw),         "sandgrain/v1/%s/req/replyRW",              device_id);
     snprintf(ctx->topic_req_rw,           sizeof(ctx->topic_req_rw),           "sandgrain/v1/%s/req/requestRW",            device_id);
@@ -135,13 +145,10 @@ bool port_comm_init(port_comm_ctx_t *ctx, const char *device_id)
     snprintf(ctx->topic_installation,     sizeof(ctx->topic_installation),     "sandgrain/v1/%s/req/fwInstallation",       device_id);
     snprintf(ctx->topic_rsp,              sizeof(ctx->topic_rsp),              "sandgrain/v1/%s/rsp/#",                    device_id);
 
-    mosquitto_lib_init();
+    /* Logged after the topics exist, so the tag can be resolved. */
+    LOG_CTX(ctx, "Initializing communication port .....");
 
-    /* Resolve the gateway's own broker-facing IP once, to stamp on each req
-     * envelope as gateway_id (cloud traceability). Winsock is up now that
-     * mosquitto_lib_init() has run (it calls WSAStartup on Windows). Falls back
-     * to "gw" internally on failure. */
-    gw_whitelist_resolve_ip(ctx->gateway_id, sizeof(ctx->gateway_id));
+    mosquitto_lib_init();
 
     ctx->mosq = mosquitto_new(NULL, true, ctx);  /* pass ctx as userdata */
     if (!ctx->mosq)
@@ -228,44 +235,23 @@ bool port_comm_send(port_comm_ctx_t *ctx, const uint8_t *buffer_tx, uint16_t buf
 
     fi_attempt++;
 
-    /* Stamp the gateway identity onto the outgoing envelope so the cloud trace
-     * can attribute the relaying gateway. Insert "gateway_id":"<ip>", right
-     * after the opening '{' (top-level sibling of "type"/"payload"). The cloud
-     * reads env.gateway_id; a gateway without it just yields null there.
-     * Publish the injected buffer; fall back to the original on any mismatch. */
-    char     out_buffer[576];
-    uint16_t out_len = 0;
-    if (tmp_buffer[0] == '{' && ctx->gateway_id[0] != '\0')
-    {
-        int n = snprintf(out_buffer, sizeof(out_buffer),
-                         "{\"gateway_id\":\"%s\",%s",
-                         ctx->gateway_id, (const char *)tmp_buffer + 1);
-        if (n > 0 && (size_t)n < sizeof(out_buffer))
-            out_len = (uint16_t)n;
-    }
-    if (out_len == 0)   /* not JSON, no id, or would overflow: publish unchanged */
-    {
-        memcpy(out_buffer, tmp_buffer, buffer_tx_size);
-        out_len = buffer_tx_size;
-    }
+    LOG_CTX(ctx, "TX about to write | topic=%s | size=%u | data=%s",
+              topic, buffer_tx_size, tmp_buffer);
 
-    LOG_DEBUG("TX about to write | topic=%s | size=%u | data=%s",
-              topic, out_len, out_buffer);
-
-    int rc = mosquitto_publish(ctx->mosq, NULL, topic, out_len, out_buffer, 1, false);
+    int rc = mosquitto_publish(ctx->mosq, NULL, topic, buffer_tx_size, tmp_buffer, 1, false);
 
     switch (rc)
     {
-        case MOSQ_ERR_SUCCESS:           LOG_DEBUG("Publish OK");                                      break;
-        case MOSQ_ERR_INVAL:             LOG_DEBUG("Publish failed | invalid input parameters");       break;
-        case MOSQ_ERR_NOMEM:             LOG_DEBUG("Publish failed | out of memory");                  break;
-        case MOSQ_ERR_NO_CONN:           LOG_DEBUG("Publish failed | client not connected to broker"); break;
-        case MOSQ_ERR_PROTOCOL:          LOG_DEBUG("Publish failed | protocol error with broker");     break;
-        case MOSQ_ERR_PAYLOAD_SIZE:      LOG_DEBUG("Publish failed | payload too large");              break;
-        case MOSQ_ERR_MALFORMED_UTF8:    LOG_DEBUG("Publish failed | topic is not valid UTF-8");       break;
-        case MOSQ_ERR_QOS_NOT_SUPPORTED: LOG_DEBUG("Publish failed | QoS not supported by broker");    break;
-        case MOSQ_ERR_OVERSIZE_PACKET:   LOG_DEBUG("Publish failed | packet too large for broker");    break;
-        default:                         LOG_DEBUG("Publish failed | unknown rc=%d", rc);              break;
+        case MOSQ_ERR_SUCCESS:           LOG_CTX(ctx, "Publish OK");                                      break;
+        case MOSQ_ERR_INVAL:             LOG_CTX(ctx, "Publish failed | invalid input parameters");       break;
+        case MOSQ_ERR_NOMEM:             LOG_CTX(ctx, "Publish failed | out of memory");                  break;
+        case MOSQ_ERR_NO_CONN:           LOG_CTX(ctx, "Publish failed | client not connected to broker"); break;
+        case MOSQ_ERR_PROTOCOL:          LOG_CTX(ctx, "Publish failed | protocol error with broker");     break;
+        case MOSQ_ERR_PAYLOAD_SIZE:      LOG_CTX(ctx, "Publish failed | payload too large");              break;
+        case MOSQ_ERR_MALFORMED_UTF8:    LOG_CTX(ctx, "Publish failed | topic is not valid UTF-8");       break;
+        case MOSQ_ERR_QOS_NOT_SUPPORTED: LOG_CTX(ctx, "Publish failed | QoS not supported by broker");    break;
+        case MOSQ_ERR_OVERSIZE_PACKET:   LOG_CTX(ctx, "Publish failed | packet too large for broker");    break;
+        default:                         LOG_CTX(ctx, "Publish failed | unknown rc=%d", rc);              break;
     }
 
     return (rc == MOSQ_ERR_SUCCESS);
@@ -322,5 +308,5 @@ void port_comm_close(port_comm_ctx_t *ctx)
     ctx->rx_available = false;
     ctx->connected    = false;
 
-    LOG_DEBUG("Closing communication port ....");
+    LOG_CTX(ctx, "Closing communication port ....");
 }

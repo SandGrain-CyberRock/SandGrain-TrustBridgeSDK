@@ -86,17 +86,6 @@ async def dispatch(
 
         if result.ok:
             return make_response_ok(msg_type, result.payload or {}, crc_optional)
-
-        # Surface the normalized failure classification as discrete trace fields
-        # (V4 section 3: error_code / error_result).
-        log.info(
-            "[OUTCOME] action=%s device_id=%s result=NOK error_code=%s error_result=%s",
-            action,
-            device_id,
-            result.error_code,
-            result.error_result,
-            extra={"error_code": result.error_code, "error_result": result.error_result},
-        )
         return make_response_from_handler_result(msg_type, result)
 
     except CyberRockError as e:

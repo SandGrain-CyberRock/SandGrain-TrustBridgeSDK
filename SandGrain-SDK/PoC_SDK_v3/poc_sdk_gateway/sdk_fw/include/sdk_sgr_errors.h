@@ -30,7 +30,15 @@ typedef enum
 
     /* Gateway */
     SGR_SDK_NO_DATA,            /* No data available from DEVICE */
-    SGR_SDK_BUSY                /* Dispatcher: no channel has data yet — call again */
+    SGR_SDK_BUSY                /* Dispatcher: no channel has data yet - call again */,
+
+    /* CyberRock authenticated the chip but no tenant has claimed it yet.
+     * Appended so existing values keep their numbers. Not a failure and not
+     * transient: the claim is asynchronous (cloud -> BE -> tenant-api), so the
+     * gateway must report it and let the device re-auth, never retry it in a
+     * tight loop - a retry just re-fetches CLAIM_TOKEN. Named to match the
+     * device SDK, which already used this spelling. */
+    SGR_SDK_CLAIM_TOKEN_READY
 
 } sgr_sdk_status_t;    
 

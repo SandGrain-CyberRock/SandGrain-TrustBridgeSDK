@@ -3,7 +3,7 @@
  *
  * Random byte generation utility.
  *
- * Current implementation uses rand() — suitable for PoC only.
+ * Current implementation uses rand() - suitable for PoC only.
  * Replace random_bytes() implementation with hardware RNG when available.
  * ============================================================================= */
 

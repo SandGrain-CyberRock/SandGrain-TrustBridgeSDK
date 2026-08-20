@@ -1,0 +1,31 @@
+#include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
+
+/ {
+	chosen {
+		zephyr,console = &uart30;
+		zephyr,shell-uart = &uart30;
+		zephyr,uart-mcumgr = &uart30;
+		zephyr,bt-mon-uart = &uart30;
+		zephyr,bt-c2h-uart = &uart30;
+	};
+};
+
+&uart20 {
+	status = "disabled";
+};
+
+&uart30 {
+	status = "okay";
+};
+
+&spi22 {
+	status = "okay";
+
+	sgt1001: sgt1001@0 {
+		compatible = "zephyr,sgt1001";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		spi-cs-setup-delay-ns = <1000>;
+		spi-cs-hold-delay-ns = <1000>;
+	};
+};

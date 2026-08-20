@@ -25,23 +25,23 @@
 **
 ** $Log: tiny_shell.h,v $
 ** Revision 1.4  2013/05/06 21:12:44  iarmendariz
-** Cambios introducidos para que funciones en LINUX. (faltarÃ­a adaptar linea serie pero TCP funciona OK).
+** Cambios introducidos para que funciones en LINUX. (faltarA?a adaptar linea serie pero TCP funciona OK).
 **
 ** Revision 1.3  2011/11/02 07:08:52  iarmendariz
-** Corrección de bugs en tinyshell y en RS232 para tcp
-** Añadida funcion autodiagnostico para rs232.
+** Correccion de bugs en tinyshell y en RS232 para tcp
+** Anadida funcion autodiagnostico para rs232.
 **
 ** Revision 1.2  2011/09/23 06:44:50  iarmendariz
 ** Terminado porting de RS232 a STM32.
 ** RS232: incluida tecla DEL (0x7F) en el procesado.
-**             ampliado límite de buffer admisible a 200 bytes para STM32
+**             ampliado limite de buffer admisible a 200 bytes para STM32
 ** tiny_shell: ampliada funcionalidad para mostrar ayuda al usuario dentro de un comando. Probado con comando version.
-** main.c: ejemplo más completo de uso de tiny_shell, incluyendo "version" con ejemplo de ayuda a primer parámetro.
+** main.c: ejemplo mas completo de uso de tiny_shell, incluyendo "version" con ejemplo de ayuda a primer parametro.
 **
 ** Revision 1.1  2011/07/26 05:46:53  iarmendariz
 ** Corregidos bugs en rs232:
-** añadido tiny_shell: En proceso de prueba.
-** añadido log y semaforos así como timer de alta precision.
+** anadido tiny_shell: En proceso de prueba.
+** anadido log y semaforos asi como timer de alta precision.
 **
 **
 **

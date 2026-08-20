@@ -25,4 +25,19 @@ extern volatile uint8_t fi_skip_phase2;     /* parity flag with rev3.2-Mutual �
 /* ── Apply bitflip on hex string ── */
 void fi_apply_bitflip_hex(char *hex_str, int hex_len, int bit_position);
 
+/* ── Whole-frame helpers, for transports other than the PC socket ──
+ * The PC/TCP port applies the flips inline in port_comm.c. Transports that
+ * carry the same JSON frames elsewhere (BLE NUS on the Pi and on the board)
+ * call these instead, so menu options 2 and 3 mean the same thing everywhere
+ * instead of silently doing nothing off the socket path.
+ *
+ * Both take one NUL-terminated JSON frame and mutate it in place; both are
+ * no-ops unless the corresponding fi_enable_* flag is set. */
+
+/* Outgoing frame: CW echo (option 2), RW (option 2), CW echo x2 (option 3). */
+void fi_apply_tx_frame(char *json);
+
+/* Inbound frame: CW 2 bits (option 2), CW 1 more bit (option 3). */
+void fi_apply_rx_frame(char *json);
+
 #endif /* FI_DEVICE_H */

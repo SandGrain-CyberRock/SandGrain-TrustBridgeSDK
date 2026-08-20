@@ -24,16 +24,6 @@ void gw_log_init(void);
 void gw_log_publish(const char *tid_hex, const char *step,
                     const char *status, const char *message, int attempt);
 
-/**
- * As gw_log_publish(), but the local trace line additionally carries the
- * debug-level `request_data` object (emitted only when TRACE_LOG_DEBUG is set;
- * NULL to omit). `request_data` must be a valid JSON object whose sensitive
- * members are already masked. The MQTT telemetry payload is unchanged.
- */
-void gw_log_publish_ex(const char *tid_hex, const char *step,
-                       const char *status, const char *message, int attempt,
-                       const char *request_data);
-
 /** Publish the terminal authentication outcome for a device. */
 void gw_log_publish_auth_result(const char *tid_hex, int auth_ok);
 

@@ -19,7 +19,7 @@
 
 static struct mosquitto *mosq = NULL;
 
-/* Dynamic topics — built at init from device_id */
+/* Dynamic topics - built at init from device_id */
 static char topic_req_cw[128];
 static char topic_reply_rw[128];
 static char topic_req_rw[128];

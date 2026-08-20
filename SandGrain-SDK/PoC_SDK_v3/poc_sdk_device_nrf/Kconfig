@@ -1,0 +1,18 @@
+# Application-specific Kconfig for poc_sdk_device_nrf.
+# (A Kconfig in the app root becomes the top-level source, so it must end by
+#  sourcing Kconfig.zephyr to pull in the normal Zephyr configuration.)
+
+config SANDGRAIN_INTERACTIVE_MENU
+	bool "Interactive serial menu instead of the auto-auth loop"
+	default y
+	help
+	  When y, the device presents a menu over the UART console (COM port) to
+	  trigger BIST / mutual authentication on demand, like the PC test app.
+	  Requires an interactive serial terminal that can send keystrokes
+	  (PuTTY, screen, miniterm, VS Code Serial Monitor). The console input
+	  subsystem it uses (CONSOLE_SUBSYS/GETCHAR) is enabled in prj.conf.
+
+	  When n, the device runs the original behaviour: wait for the
+	  relay/gateway link, then authenticate automatically every few seconds.
+
+source "Kconfig.zephyr"
