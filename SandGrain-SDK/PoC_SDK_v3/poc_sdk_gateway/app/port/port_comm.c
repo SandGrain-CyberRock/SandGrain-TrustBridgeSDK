@@ -9,6 +9,7 @@
 #include "sdk_sgr_config.h"
 #include "config_poc.h"
 #include "gw_whitelist.h"   /* gw_whitelist_resolve_ip() — gateway self IP */
+#include "trace_log.h"      /* trace_log_get_flow_id() — device-minted correlation id */
 
 #include <string.h>
 #include <stdio.h>
@@ -233,13 +234,23 @@ bool port_comm_send(port_comm_ctx_t *ctx, const uint8_t *buffer_tx, uint16_t buf
      * after the opening '{' (top-level sibling of "type"/"payload"). The cloud
      * reads env.gateway_id; a gateway without it just yields null there.
      * Publish the injected buffer; fall back to the original on any mismatch. */
-    char     out_buffer[576];
+    char     out_buffer[640];
     uint16_t out_len = 0;
     if (tmp_buffer[0] == '{' && ctx->gateway_id[0] != '\0')
     {
+        /* Relay the device-minted flow_id alongside gateway_id (both top-level
+         * siblings) when present, so the cloud trace shares the device's id.
+         * Omitted when empty (standalone / older device) -> cloud yields null. */
+        const char *flow_id = trace_log_get_flow_id();
+        char flow_frag[40];
+        if (flow_id && flow_id[0] != '\0')
+            snprintf(flow_frag, sizeof(flow_frag), "\"flow_id\":\"%s\",", flow_id);
+        else
+            flow_frag[0] = '\0';
+
         int n = snprintf(out_buffer, sizeof(out_buffer),
-                         "{\"gateway_id\":\"%s\",%s",
-                         ctx->gateway_id, (const char *)tmp_buffer + 1);
+                         "{\"gateway_id\":\"%s\",%s%s",
+                         ctx->gateway_id, flow_frag, (const char *)tmp_buffer + 1);
         if (n > 0 && (size_t)n < sizeof(out_buffer))
             out_len = (uint16_t)n;
     }

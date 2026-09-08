@@ -136,6 +136,24 @@ device_status_t DEVICE_ReceiveAuthRequest(device_service_ctx_t *ctx, uint32_t *c
 
                 *crc32_out = (uint32_t)strtoul(crc32_str, NULL, 16);
                 ctx->crc32 = *crc32_out;
+
+                /* Optional device-minted flow_id (correlation id). Older devices
+                 * don't send it -> leave empty. */
+                ctx->flow_id[0] = '\0';
+                {
+                    char *fptr = strstr((char *)rx_buf, "\"flow_id\":\"");
+                    if (fptr != NULL)
+                    {
+                        fptr += strlen("\"flow_id\":\"");
+                        size_t j = 0;
+                        while (fptr[j] != '"' && fptr[j] != '\0' && j < sizeof(ctx->flow_id) - 1)
+                        {
+                            ctx->flow_id[j] = fptr[j];
+                            j++;
+                        }
+                        ctx->flow_id[j] = '\0';
+                    }
+                }
                 status     = DEVICE_OK;
             }
         }

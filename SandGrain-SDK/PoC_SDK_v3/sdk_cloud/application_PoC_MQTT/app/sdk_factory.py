@@ -39,7 +39,7 @@ async def _create_sdk_instance() -> Tuple[CloudSDK, aiohttp.ClientSession]:
                 "CREDENTIALS_SOURCE=trustbridge requires BE_URL (e.g. http://be:3000/api)"
             )
         log.info("Credentials mode=trustbridge (BE=%s)", cfg.be_url)
-        creds = BackendCredentialsStore(cfg.be_url)
+        creds = BackendCredentialsStore(cfg.be_url, api_key=cfg.be_api_key)
     else:
         log.info("Credentials mode=standalone (file=%s)", cfg.device_credentials_json)
         creds = JsonFileCredentialsStore(cfg.device_credentials_json)

@@ -476,6 +476,9 @@ async def _handle_request_cw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handl
         duration_ms,
         extra={
             "dt_ms": duration_ms,
+            "event": "action.end",
+            "step": "request_cw",
+            "status": "success",
             "additional_info": {"tid": tid},
             "request_data": {"TID": tid, "CW": result.cw, "transactionId": result.transaction_id},
         },
@@ -652,6 +655,12 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
             tid,
             transaction_id,
             getattr(exc, "status", None),
+            extra={
+                "event": "action.end",
+                "step": "reply_rw",
+                "status": "failure",
+                "reason": "cyberrock_error",
+            },
         )
         if getattr(exc, "status", None) == 400:
             return err(ErrorCode.NOT_OK, str(exc))
@@ -672,6 +681,13 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
             transaction_id,
             last_status,
             duration_ms,
+            extra={
+                "dt_ms": duration_ms,
+                "event": "action.end",
+                "step": "reply_rw",
+                "status": "failure",
+                "reason": "timeout",
+            },
         )
         return err(
             ErrorCode.TIMEOUT,
@@ -696,6 +712,9 @@ async def _handle_reply_rw(payload: Dict[str, Any], *, sdk: CloudSDK) -> Handler
         duration_ms,
         extra={
             "dt_ms": duration_ms,
+            "event": "action.end",
+            "step": "reply_rw",
+            "status": "success",
             "additional_info": {"tid": tid, "auth_status": auth_status, "has_hrw2": bool(hrw2)},
             "request_data": {
                 "TID": tid,

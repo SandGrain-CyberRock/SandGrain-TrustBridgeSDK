@@ -39,11 +39,14 @@ class Envelope:
     - crc: dict under "crc" (optional; may be None)
     - gateway_id: gateway identity the relaying gateway stamps on the envelope
       (its own IP for now); optional; None for standalone / older gateways.
+    - flow_id: device-minted per-attempt correlation id, relayed by the gateway;
+      optional; None for standalone / older device+gateway that don't send it.
     """
     msg_type: Any
     payload: Dict[str, Any]
     crc: Optional[Dict[str, Any]]
     gateway_id: Optional[str] = None
+    flow_id: Optional[str] = None
 
 
 def is_valid_action(msg_type: Any, action: str) -> bool:
@@ -104,7 +107,18 @@ def parse_envelope(payload_bytes: bytes) -> Tuple[Optional[Envelope], Optional[D
     gateway = env.get("gateway_id") or env.get("gatewayId")
     gateway_id = str(gateway) if gateway else None
 
-    return Envelope(msg_type=msg_type, payload=payload, crc=crc_map, gateway_id=gateway_id), None
+    # flow_id: device-minted per-attempt correlation id, relayed by the gateway.
+    # None when absent (standalone / older device+gateway) -> cloud mints its own.
+    flow = env.get("flow_id") or env.get("flowId")
+    flow_id = str(flow) if flow else None
+
+    return Envelope(
+        msg_type=msg_type,
+        payload=payload,
+        crc=crc_map,
+        gateway_id=gateway_id,
+        flow_id=flow_id,
+    ), None
 
 
 def validate_payload_keys(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:

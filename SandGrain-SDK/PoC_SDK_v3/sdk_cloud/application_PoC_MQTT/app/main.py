@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
+from collections import OrderedDict
 from typing import Any
 
 from . import trace_log
@@ -21,6 +23,45 @@ logging.basicConfig(
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
 )
 log = logging.getLogger("sandgrain-poc-cloud")
+
+
+# --------------------------------------------------------------------------- #
+# flow_id — correlate every trace line of ONE auth attempt.
+# The cloud handles requestCW and replyRW as separate MQTT messages; they share
+# the CyberRock transactionId (minted during requestCW, echoed back in replyRW),
+# so we thread one flow_id across them keyed by that tx. This is cloud-local
+# grouping only — a device-minted flow_id carried over the wire (which would also
+# span the device and gateway hops, for combined cross-component logs) is
+# separate, deferred work.
+# --------------------------------------------------------------------------- #
+_FLOW_BY_TX: "OrderedDict[str, str]" = OrderedDict()
+_FLOW_TX_CAP = 512
+
+
+def _new_flow_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def _resolve_flow_id(incoming_tx: Any) -> str:
+    """Reuse the attempt's flow_id when this message carries a known transactionId
+    (e.g. replyRW following its requestCW); otherwise start a new flow."""
+    if incoming_tx:
+        existing = _FLOW_BY_TX.get(str(incoming_tx))
+        if existing:
+            return existing
+    return _new_flow_id()
+
+
+def _bind_flow_tx(tx: Any, flow_id: str) -> None:
+    """Remember tx -> flow_id so a later message with the same tx joins this flow.
+    Bounded (LRU-ish) so an abandoned attempt cannot leak memory."""
+    if not tx:
+        return
+    key = str(tx)
+    _FLOW_BY_TX[key] = flow_id
+    _FLOW_BY_TX.move_to_end(key)
+    while len(_FLOW_BY_TX) > _FLOW_TX_CAP:
+        _FLOW_BY_TX.popitem(last=False)
 
 
 async def run_app() -> None:
@@ -99,7 +140,14 @@ async def run_app() -> None:
             # per-device here (not globally unique), used for gap/duplicate
             # detection only, not as a correlation key.
             device_id = route.device_id
+            # Correlate all trace lines of this attempt under one flow_id. Prefer
+            # the device-minted flow_id relayed on the envelope (spans device +
+            # gateway too); fall back to cloud-side minting/tx-threading when the
+            # device+gateway don't send one (standalone / older components).
+            incoming_tx = env.payload.get("transactionId") if isinstance(env.payload, dict) else None
+            flow_id = env.flow_id or _resolve_flow_id(incoming_tx)
             trace_log.set_context(
+                flow_id=flow_id,
                 request_originator=request_originator,
                 gateway_id=env.gateway_id,
                 event_scope="device",
@@ -144,6 +192,13 @@ async def run_app() -> None:
 
             if rsp is None:
                 return
+
+            # Link this attempt's flow_id to the transactionId it just minted, so
+            # the follow-up replyRW (which carries the same tx) joins this flow.
+            if isinstance(rsp, dict):
+                out_tx = (rsp.get("payload") or {}).get("transactionId")
+                if out_tx:
+                    _bind_flow_tx(out_tx, flow_id)
 
             transport.publish(rsp_topic, rsp)
 

@@ -60,6 +60,13 @@ void trace_log_init(void);
 /** Record the device id (hex TID) stamped on every subsequent line. */
 void trace_log_set_device_id(const char *tid_hex);
 
+/** Record / read the per-attempt flow_id stamped on every subsequent line.
+ *  Device-minted once per auth attempt; the wire builders read it back
+ *  (trace_log_get_flow_id) to put it on the outgoing frame so the gateway and
+ *  cloud trace lines carry the SAME id. Empty string until set. */
+void        trace_log_set_flow_id(const char *flow_id);
+const char *trace_log_get_flow_id(void);
+
 /** Append one traceability event (info fields only). Any of result_code/
  *  peer_response/additional_info may be NULL. No-op when tracing is disabled.
  *  Thin wrapper over trace_log_event_ex() with request_data == NULL. */

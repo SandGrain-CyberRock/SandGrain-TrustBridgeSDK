@@ -67,6 +67,7 @@
         sgr_mw_status_t pending_result;
         int             attempt;
         uint32_t        crc32;
+        char            flow_id[24];   /* device-minted correlation id for this flow */
         char            tid_hex[AUTH_DB_TID_HEX_LEN + 1];
         uint8_t         tid_bytes[32];
         uint8_t         cw[32];
@@ -700,6 +701,13 @@ sgr_mw_status_t sgr_mw_gw_authenticate_device(int device_idx)
             }
             else
             {
+                /* Adopt the device-minted flow_id for this whole gateway flow so
+                 * the gateway trace lines and the cloud envelope carry the SAME
+                 * id as the device (empty when the device didn't send one). */
+                strncpy(ctx->flow_id, dev_ctx->flow_id, sizeof(ctx->flow_id) - 1);
+                ctx->flow_id[sizeof(ctx->flow_id) - 1] = '\0';
+                trace_log_set_flow_id(ctx->flow_id);
+
                 if (auth_db_resolve(ctx->crc32, ctx->tid_hex) != AUTH_DB_OK)
                 {
                     MW_LOG("[CH%d][ERROR] Device not registered (CRC32=0x%08X)", device_idx, ctx->crc32);
@@ -2332,6 +2340,12 @@ sgr_mw_status_t sgr_mw_gw_run(int device_idx)
 
     /* Continue the active flow */
     sgr_mw_status_t result = SGR_MW_BUSY;
+
+    /* Trace/envelope correlation for this iteration: use the device-minted
+     * flow_id only for the AUTH flow (the only flow that carries it on the wire);
+     * other flows clear it so a stale id can't bleed into their lines. */
+    trace_log_set_flow_id(gw_active_flow[device_idx] == GW_FLOW_AUTH
+                          ? gw_ctx_table[device_idx].flow_id : "");
 
     switch (gw_active_flow[device_idx])
     {

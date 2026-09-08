@@ -88,6 +88,10 @@ _LOGGERS = ("sandgrain-poc-cloud", "cyberrock-client")
 #     gateway_id  == V4 edge_node_id      event_scope/app_seq_scope value
 #     device_id   == V4 leaf_id             "gateway" == edge_node, "device" == leaf
 _CONTEXT_KEYS = (
+    # flow_id correlates every line of ONE auth attempt (cloud-side: threaded
+    # across the requestCW/replyRW messages by their shared CyberRock
+    # transactionId). Set once per MQTT message by main.py.
+    "flow_id",
     "request_originator",
     "gateway_id",
     "event_scope",
@@ -107,6 +111,16 @@ _EXTRA_KEYS = (
     "error_code",
     "error_result",
     "additional_info",
+    # Per-call span structure: req_id pairs a request line with its response /
+    # error line; event = http.request | http.response | http.error | action.end;
+    # status = in_progress | success | failure (default "info" for other lines);
+    # step names the sub-call; reason/duration_ms add outcome + latency.
+    "req_id",
+    "step",
+    "event",
+    "status",
+    "reason",
+    "duration_ms",
 )
 
 # Substrings (case-insensitive) that mark a field as sensitive crypto material.
@@ -231,6 +245,11 @@ class _JsonlTraceHandler(logging.Handler):
             for k in _EXTRA_KEYS:
                 if hasattr(record, k):
                     rec[k] = getattr(record, k)
+
+            # Every row carries an outcome key: operations set it explicitly
+            # (in_progress on a request line, success/failure on its close);
+            # non-operational lines (startup, cache hits, ...) default to "info".
+            rec.setdefault("status", "info")
 
             # Debug-level request_data — masked, and only when the 2nd switch is on.
             if _debug:

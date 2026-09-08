@@ -42,6 +42,11 @@ class AppConfig:
     # credentials_source == "trustbridge").
     be_url: str | None = None
 
+    # Shared secret sent as the X-Internal-Api-Key header on BE lookups
+    # (credentials-by-tid). Optional: when None the header is omitted and BE
+    # calls behave exactly as before. Set BE_API_KEY once BE enforces it.
+    be_api_key: str | None = None
+
     # Message format over MQTT (JSON for this POC; protobuf is optional/placeholder)
     message_format: str = "json"  # json | protobuf
 
@@ -59,5 +64,6 @@ def load_config() -> AppConfig:
         cf_access_client_secret=os.getenv("CF_ACCESS_CLIENT_SECRET") or None,
         credentials_source=(os.getenv("CREDENTIALS_SOURCE", "standalone") or "standalone").strip().lower(),
         be_url=(os.getenv("BE_URL") or "").rstrip("/") or None,
+        be_api_key=(os.getenv("BE_API_KEY") or "").strip() or None,
         message_format=(os.getenv("MESSAGE_FORMAT", "json") or "json").lower(),
     )

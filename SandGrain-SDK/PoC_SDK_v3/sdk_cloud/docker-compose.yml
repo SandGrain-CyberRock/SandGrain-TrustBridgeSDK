@@ -62,6 +62,9 @@ services:
     environment:
       - CREDENTIALS_SOURCE=${CREDENTIALS_SOURCE:-standalone}
       - BE_URL=${BE_URL:-}
+      # Optional shared secret for BE lookups (X-Internal-Api-Key). Empty by
+      # default -> header omitted, BE calls unchanged. Set once BE enforces it.
+      - BE_API_KEY=${BE_API_KEY:-}
       # Local traceability Off unless TRACE_LOG_PATH is present in
       # the environment when compose runs — start-all inherits and forwards the
       # shell env, so `TRACE_LOG_PATH=trace/trace_cloud.jsonl [TRACE_LOG_DEBUG=1]

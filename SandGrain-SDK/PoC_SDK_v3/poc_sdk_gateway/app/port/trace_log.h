@@ -99,6 +99,12 @@ int  trace_log_enabled(void);
  *  i.e. when request_data will actually be emitted. */
 int  trace_log_debug_enabled(void);
 
+/** Record / read the per-attempt flow_id stamped on every subsequent trace line
+ *  AND onto the outgoing cloud envelope (port_comm). Adopted from the
+ *  device-minted id relayed on the wire; empty string clears it. */
+void        trace_log_set_flow_id(const char *flow_id);
+const char *trace_log_get_flow_id(void);
+
 /** Flush + close the log file and destroy the mutex. */
 void trace_log_close(void);
 

@@ -41,6 +41,7 @@ static int           g_enabled   = 0;
 static int           g_debug     = 0;   /* TRACE_LOG_DEBUG -> emit request_data */
 static unsigned long g_seq       = 0;
 static char          g_device_id[65] = {0};
+static char          g_flow_id[24] = {0};   /* per-attempt correlation id (device-minted) */
 
 /* Append a JSON-string-escaped copy of src into buf[*pos..cap). */
 static void json_escape(char *buf, size_t cap, size_t *pos, const char *src)
@@ -115,6 +116,15 @@ void trace_log_set_device_id(const char *tid_hex)
     g_device_id[sizeof(g_device_id) - 1] = '\0';
 }
 
+void trace_log_set_flow_id(const char *flow_id)
+{
+    if (!flow_id) { g_flow_id[0] = '\0'; return; }
+    strncpy(g_flow_id, flow_id, sizeof(g_flow_id) - 1);
+    g_flow_id[sizeof(g_flow_id) - 1] = '\0';
+}
+
+const char *trace_log_get_flow_id(void) { return g_flow_id; }
+
 int trace_log_enabled(void)       { return g_enabled; }
 int trace_log_debug_enabled(void) { return g_enabled && g_debug; }
 
@@ -161,6 +171,9 @@ void trace_log_event_ex(const char *event_type,
     pos += (size_t)snprintf(line + pos, sizeof(line) - pos,
         "{\"local_timestamp\":\"%s\",\"device_id\":\"", ts);
     json_escape(line, sizeof(line), &pos, g_device_id);
+
+    pos += (size_t)snprintf(line + pos, sizeof(line) - pos, "\",\"flow_id\":\"");
+    json_escape(line, sizeof(line), &pos, g_flow_id);
 
     pos += (size_t)snprintf(line + pos, sizeof(line) - pos, "\",\"event_type\":\"");
     json_escape(line, sizeof(line), &pos, event_type ? event_type : "");

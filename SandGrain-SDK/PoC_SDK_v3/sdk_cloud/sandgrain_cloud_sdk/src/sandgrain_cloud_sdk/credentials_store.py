@@ -178,8 +178,18 @@ class BackendCredentialsStore(CredentialsStore):
         }
     """
 
-    def __init__(self, base_url: str, *, timeout_s: float = 10.0, cache_ttl_s: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        api_key: Optional[str] = None,
+        timeout_s: float = 10.0,
+        cache_ttl_s: float = 30.0,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
+        # Shared secret for the X-Internal-Api-Key header. None -> header omitted
+        # (BE calls unchanged); set once BE enforces the key. Never logged.
+        self.api_key = api_key or None
         self.timeout_s = timeout_s
         self.cache_ttl_s = cache_ttl_s
         # tid -> (fetched_at, payload). Avoids 3 HTTP calls per ensure_device_token
@@ -193,7 +203,10 @@ class BackendCredentialsStore(CredentialsStore):
             return cached[1]
 
         url = f"{self.base_url}/devices/credentials-by-tid?" + urllib.parse.urlencode({"tid": tid})
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["X-Internal-Api-Key"] = self.api_key
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
                 raw = resp.read().decode("utf-8")

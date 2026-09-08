@@ -30,6 +30,7 @@ typedef enum {
 typedef struct {
     port_comm_device_t *comm;
     uint32_t            crc32;
+    char                flow_id[24];   /* device-minted correlation id (optional; "" if absent) */
     uint8_t             cw[32];
     uint8_t             rw[16];
     uint8_t             cw_echo[32];

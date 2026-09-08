@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+import uuid
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
@@ -53,6 +55,42 @@ def _mask_headers(h: Dict[str, str]) -> Dict[str, str]:
     return out
 
 
+# path substring -> short step label. Ordered most-specific first so the
+# "check*" and mutual-auth variants win over the plainer names they contain
+# (e.g. checkRequestRWStatus must match before requestRW).
+_STEP_RULES = (
+    ("devicelogin", "device_login"),
+    ("tenantuserlogin", "tenant_login"),
+    ("claim-token", "claim_token"),
+    ("checkmutualauthstatus", "check_auth_status"),
+    ("checkauthstatus", "check_auth_status"),
+    ("checkrequesthrwstatus", "check_hrw_status"),
+    ("checkrequestrwstatus", "check_rw_status"),
+    ("requesttransactionid", "request_txid"),
+    ("requestmutualauthcw", "request_cw"),
+    ("requesthrw", "request_hrw"),
+    ("requestcw", "request_cw"),
+    ("replymutualauthrw", "reply_rw"),
+    ("replyrw", "reply_rw"),
+    ("requestrw", "request_rw"),
+)
+
+
+def _step_for_path(path: str) -> str:
+    """Short, stable label for the sub-call an HTTP request represents.
+
+    Lets the trace layer distinguish the several REST calls that make up one MQTT
+    action (device_login vs request_cw vs check_auth_status, ...), which otherwise
+    share action/app_message_seq and are told apart only by timestamp.
+    """
+    p = path.lower()
+    for needle, name in _STEP_RULES:
+        if needle in p:
+            return name
+    seg = p.rstrip("/").rsplit("/", 1)[-1]
+    return seg or "http"
+
+
 class CyberRockClient:
     def __init__(
         self,
@@ -101,6 +139,14 @@ class CyberRockClient:
         if extra_headers:
             headers.update(extra_headers)
 
+        # Per-HTTP-call span identity: req_id pairs this request line with its
+        # response/error line; step names the sub-call (device_login, request_cw,
+        # check_auth_status, ...) so the several REST calls of one MQTT action are
+        # distinguishable. t0 measures the round-trip (duration_ms on close).
+        req_id = uuid.uuid4().hex[:8]
+        step = _step_for_path(path)
+        t0 = time.monotonic()
+
         # Safe logging (masked). The `extra=` fields feed the JSONL traceability
         # sink (trace_log): http_method / url / path per V4 section 3, plus the
         # request body as request_data (the trace layer masks rw/ek/etc.).
@@ -108,7 +154,16 @@ class CyberRockClient:
             "HTTP %s %s",
             method,
             url,
-            extra={"http_method": method, "url": url, "path": path, "request_data": json_body},
+            extra={
+                "http_method": method,
+                "url": url,
+                "path": path,
+                "request_data": json_body,
+                "req_id": req_id,
+                "step": step,
+                "event": "http.request",
+                "status": "in_progress",
+            },
         )
         log.debug("Request headers=%s", _mask_headers(headers))
         log.debug("Request json=%s", _mask_json(json_body))
@@ -124,6 +179,25 @@ class CyberRockClient:
             # Cloudflare Access sometimes returns a redirect instead of JSON
             if resp.status in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("Location", "")
+                # Close the in-progress span before raising, so every request has
+                # a matching response line (no dangling "in_progress").
+                log.info(
+                    "HTTP status=%s for %s %s (redirect)",
+                    resp.status,
+                    method,
+                    path,
+                    extra={
+                        "http_method": method,
+                        "path": path,
+                        "http_status": resp.status,
+                        "req_id": req_id,
+                        "step": step,
+                        "event": "http.response",
+                        "status": "failure",
+                        "reason": "cf_redirect",
+                        "duration_ms": int((time.monotonic() - t0) * 1000),
+                    },
+                )
                 raise CyberRockError(
                     resp.status,
                     "Cloudflare Access redirect blocked request. Ensure CF-Access-Client-Id and CF-Access-Client-Secret are configured.",
@@ -131,12 +205,26 @@ class CyberRockClient:
                 )
 
             text = await resp.text()
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            _ok = 200 <= resp.status < 300
+            _resp_extra: Dict[str, Any] = {
+                "http_method": method,
+                "path": path,
+                "http_status": resp.status,
+                "req_id": req_id,
+                "step": step,
+                "event": "http.response",
+                "status": "success" if _ok else "failure",
+                "duration_ms": duration_ms,
+            }
+            if not _ok:
+                _resp_extra["reason"] = f"http_{resp.status}"
             log.info(
                 "HTTP status=%s for %s %s",
                 resp.status,
                 method,
                 path,
-                extra={"http_method": method, "path": path, "http_status": resp.status},
+                extra=_resp_extra,
             )
             log.debug("Raw response body=%s", text)
 
@@ -157,7 +245,23 @@ class CyberRockClient:
                 detail = None
                 if isinstance(body, dict):
                     detail = body.get("message") or body.get("error") or body.get("raw")
-                log.error("HTTP error %s detail=%s body=%s", resp.status, detail, body)
+                log.error(
+                    "HTTP error %s detail=%s body=%s",
+                    resp.status,
+                    detail,
+                    body,
+                    extra={
+                        "http_method": method,
+                        "path": path,
+                        "http_status": resp.status,
+                        "req_id": req_id,
+                        "step": step,
+                        "event": "http.error",
+                        "status": "failure",
+                        "reason": f"http_{resp.status}",
+                        "duration_ms": duration_ms,
+                    },
+                )
                 raise CyberRockError(resp.status, f"HTTP error: {detail}" if detail else "HTTP error", body)
 
             return body if isinstance(body, dict) else {"data": body}

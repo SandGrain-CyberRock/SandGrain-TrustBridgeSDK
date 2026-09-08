@@ -18,6 +18,7 @@
 #include "../../utils/crc/crc.h"
 #include "../../utils/encoding/encoding_hex.h"
 #include "../../../include/sdk_sgr_config.h"
+#include "trace_log.h"   /* device-minted flow_id, put on the wire for gw + cloud */
 
 #define SERVER_TX_BUF_SIZE 512
 
@@ -517,8 +518,8 @@ server_status_t SERVER_SendAuthRequest(server_ctx_t *ctx, const uint8_t *tid)
         crc32 = ((uint32_t)crc16a << 16) | (uint32_t)crc16b;
 
         frame_len = snprintf((char *)tx_buf, sizeof(tx_buf),
-                             "{\"type\":\"4\",\"payload\":{\"CRC32\":\"%08X\"}}",
-                             crc32);
+                             "{\"type\":\"4\",\"payload\":{\"CRC32\":\"%08X\",\"flow_id\":\"%s\"}}",
+                             crc32, trace_log_get_flow_id());
 
         if (frame_len <= 0){
             status = SERVER_PARSE_ERROR;

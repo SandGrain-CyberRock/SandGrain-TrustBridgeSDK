@@ -1527,6 +1527,19 @@ static void vgw_emit(sgr_sdk_event_t event)
         s_event_cb(event, s_event_ctx);
 }
 
+/* Mint a short per-attempt correlation id: a device-specific hash of the TID
+ * (so two devices don't collide) plus a monotonic counter. Device-minted and
+ * carried on the wire (type-4 payload) so the gateway + cloud stamp the SAME
+ * flow_id — one auth attempt is one flow across all three components. */
+static unsigned g_vgw_flow_ctr = 0;
+static void vgw_mint_flow_id(char *out, size_t cap)
+{
+    uint16_t h = 0;
+    for (size_t i = 0; i < sizeof(mw_tid); i++)
+        h = (uint16_t)(h * 31u + mw_tid[i]);
+    snprintf(out, cap, "%04x%04x", h, (unsigned)(++g_vgw_flow_ctr & 0xFFFFu));
+}
+
 sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
 {
     sgr_mw_status_t status     = SGR_MW_BUSY;
@@ -1545,7 +1558,15 @@ sgr_mw_status_t sgr_mw_authenticate_via_gw(void)
             vgw_ctx.pending_result = SGR_MW_ERROR;
 
             if (vgw_ctx.attempt == 0)
+            {
+                /* Fresh auth -> mint the flow_id for the whole attempt. It is
+                 * kept across retries: g_flow_id lives in trace_log and survives
+                 * the vgw_ctx memset above, so retries reuse the same flow_id. */
+                char fid[24];
+                vgw_mint_flow_id(fid, sizeof(fid));
+                trace_log_set_flow_id(fid);
                 vgw_emit(SGR_SDK_EVT_AUTH_STARTED);
+            }
 
             MW_LOG("────────────────────────────────────────");
             MW_LOG("DEVICE — Authenticate via GW");
