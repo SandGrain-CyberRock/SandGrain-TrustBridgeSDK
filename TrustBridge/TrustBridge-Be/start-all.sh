@@ -48,6 +48,11 @@ if [ -n "${SDK_REPO:-}" ]; then
     :
 elif [ -d "$ROOT_DIR/sandgrain-sdk" ]; then
     SDK_REPO="$ROOT_DIR/sandgrain-sdk"
+elif [ -d "$ROOT_DIR/../SandGrain-SDK" ]; then
+    # Versioning-bundle layout (SandGrain-TrustBridgeSDK): the SDK ships at the
+    # repo root as SandGrain-SDK, one level ABOVE this TrustBridge/ dir. This
+    # lets ./start-all.sh run out of the box from the bundle with no SDK_REPO.
+    SDK_REPO="$(cd "$ROOT_DIR/../SandGrain-SDK" && pwd)"
 else
     SDK_REPO="$ROOT_DIR/trustbridge-sdk-v3"
 fi

@@ -57,7 +57,13 @@ $SdkRepo   = if ($env:SDK_REPO) {
     # name; fall back to the old one so existing clones keep working.
     $sandgrain = Join-Path $RootDir 'sandgrain-sdk'
     $legacy    = Join-Path $RootDir 'trustbridge-sdk-v3'
-    if (Test-Path $sandgrain) { $sandgrain } else { $legacy }
+    # Versioning-bundle layout (SandGrain-TrustBridgeSDK): the SDK ships at the
+    # repo root as SandGrain-SDK, one level ABOVE this TrustBridge\ dir. This
+    # lets .\start-all.ps1 run out of the box from the bundle with no SDK_REPO.
+    $bundle    = Join-Path (Split-Path -Parent $RootDir) 'SandGrain-SDK'
+    if (Test-Path $sandgrain) { $sandgrain }
+    elseif (Test-Path $bundle) { $bundle }
+    else { $legacy }
 }
 $CloudDir  = Join-Path (Join-Path $SdkRepo 'PoC_SDK_v3') 'sdk_cloud'
 
