@@ -20,14 +20,10 @@ import {
   ApiBody,
   ApiQuery,
 } from "@nestjs/swagger";
+
 import { DeviceGroupService } from "./device-group.service";
 import { CreateDeviceGroupDto } from "./dto/create-device-group.dto";
 import { UpdateDeviceGroupDto } from "./dto/update-device-group.dto";
-import {
-  JwtAuthGuard,
-  RolesGuard,
-  PermissionsGuard,
-} from "../../common/guards";
 import { Permissions } from "../../common/decorators";
 import {
   MessageResponseDto,
@@ -36,6 +32,11 @@ import {
   NotFoundResponseDto,
   ConflictResponseDto,
 } from "../../common/dto";
+import {
+  JwtAuthGuard,
+  RolesGuard,
+  PermissionsGuard,
+} from "../../common/guards";
 
 @ApiTags("Device Groups")
 @ApiBearerAuth("JWT-auth")

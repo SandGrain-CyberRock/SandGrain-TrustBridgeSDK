@@ -1,5 +1,6 @@
-import { IsString, IsOptional, IsArray } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+import { IsString, IsOptional, IsArray } from 'class-validator';
 
 export class UpdateRoleDto {
   @ApiPropertyOptional({ example: 'MANAGER_UPDATED' })

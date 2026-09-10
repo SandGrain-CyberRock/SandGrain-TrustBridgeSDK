@@ -43,9 +43,7 @@ const credentialsSchema = Yup.object({
     .required('Email is required'),
   password: Yup.string(),
   cf_access_client_id: Yup.string().required('CF Access Client ID is required'),
-  cf_access_client_secret: Yup.string().required(
-    'CF Access Client Secret is required',
-  ),
+  cf_access_client_secret: Yup.string(),
 });
 
 type CredentialsFormValues = Yup.InferType<typeof credentialsSchema>;
@@ -378,10 +376,14 @@ const TenantCredentialsCard = () => {
       tenant_user_id: data.tenant_user_id,
       email: data.email,
       cf_access_client_id: data.cf_access_client_id,
-      cf_access_client_secret: data.cf_access_client_secret,
     };
+
     if (data.password) {
       payload.password = data.password;
+    }
+
+    if (data.cf_access_client_secret) {
+      payload.cf_access_client_secret = data.cf_access_client_secret;
     }
     await mutateAsync(payload);
   };
@@ -427,11 +429,11 @@ const TenantCredentialsCard = () => {
               />
             </SimpleGrid>
 
-            <TextFieldInput
+            <PasswordInput
               name="cf_access_client_secret"
               label="CF Access Client Secret"
               isRequired
-              placeholder="Enter Cloudflare Access Client Secret"
+              placeholder="Leave blank to keep current Cloudflare Access Client Secret"
             />
 
             <Divider />

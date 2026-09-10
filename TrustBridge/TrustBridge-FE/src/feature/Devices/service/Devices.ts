@@ -254,27 +254,37 @@ export interface DeviceLog {
   step: string;
   status: string;
   message: string;
+  display_number?: number;
   request_data: string | null;
   response_data: string | null;
   duration_ms: number | null;
   attempt_number: number;
   created_at: string;
 }
+interface PaginatedLogsResponse {
+  data: DeviceLog[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
 
-// server responses wrap device logs inside a `data` field, similar to other API calls
-const getDeviceLogs = (id: number) => {
-  return httpClient.get<SuccesRolesResponse<DeviceLog[]>>(
+const getDeviceLogs = (id: number, page: number, limit: number) => {
+  return httpClient.get<SuccesRolesResponse<PaginatedLogsResponse>>(
     generatePath(DEVICE_API.GET_LOGS, { id: String(id) }),
+    { params: { page, limit } },
   );
 };
 
-export const useGetDeviceLogs = (id: number | null) => {
+export const useGetDeviceLogs = (
+  id: number | null,
+  page: number,
+  limit = 100,
+) => {
   return useQuery({
-    queryKey: [DEVICE_API.GET_LOGS, id],
-    queryFn: () => getDeviceLogs(id!),
-    select: ({ data }) => data.data, // unwrap the nested data array for consumers
+    queryKey: [DEVICE_API.GET_LOGS, id, page, limit],
+    queryFn: () => getDeviceLogs(id!, page, limit),
+    select: ({ data }) => data.data,
     enabled: id !== null,
     refetchInterval: 2000,
+    placeholderData: (prev) => prev,
   });
 };
 

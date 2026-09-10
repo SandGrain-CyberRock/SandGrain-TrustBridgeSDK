@@ -2,8 +2,8 @@
  * Standalone seed cleaner — run manually with: npm run seed:clean
  * Removes ALL data inserted by the seeder (permissions, roles, users, org, tenant).
  */
-import { DataSource } from "typeorm";
 import { config } from "dotenv";
+import { DataSource } from "typeorm";
 
 config();
 

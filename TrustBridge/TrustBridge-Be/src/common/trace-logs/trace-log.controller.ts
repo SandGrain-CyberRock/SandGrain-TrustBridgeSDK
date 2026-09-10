@@ -1,7 +1,10 @@
-import { Controller, Get, Query, ValidationPipe } from "@nestjs/common";
+import { Controller, Get, Query, Res, ValidationPipe } from "@nestjs/common";
+
+import { Response } from "express";
+
+import { FindLogsQueryDto } from "./dtos/FindLogsQueryDto";
 import { TraceLogService } from "./trace-log.service";
 import { FindLogsResult } from "./types";
-import { FindLogsQueryDto } from "./dtos/FindLogsQueryDto";
 
 @Controller("trace-logs")
 export class TraceLogController {
@@ -13,5 +16,14 @@ export class TraceLogController {
         query: FindLogsQueryDto,
     ): Promise<FindLogsResult> {
         return this.traceLogService.findLogs(query);
+    }
+
+    @Get("download/all")
+    async export(
+        @Query()
+        query: FindLogsQueryDto,
+        @Res() res: Response,
+    ): Promise<void> {
+        await this.traceLogService.exportStream(query, res);
     }
 }

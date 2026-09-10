@@ -9,9 +9,10 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
 } from "typeorm";
-import { OrganizationUnit } from "./organization-unit.entity";
-import { Device } from "./device.entity";
+
 import { DeviceGroup } from "./device-group.entity";
+import { Device } from "./device.entity";
+import { OrganizationUnit } from "./organization-unit.entity";
 
 @Entity("cr_tenant")
 export class Tenant {

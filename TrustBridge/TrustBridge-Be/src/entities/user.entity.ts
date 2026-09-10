@@ -8,11 +8,15 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
   OneToMany,
+  Index,
 } from "typeorm";
+
 import { OrganizationUnit } from "./organization-unit.entity";
 import { UserRole } from "./user-role.entity";
 
 @Entity("tb_user")
+@Index(["ou_id", "user_status"])
+@Index(["ou_id", "created_at"])
 export class User {
   @PrimaryGeneratedColumn()
   user_id: number;
@@ -51,6 +55,7 @@ export class User {
   @Column({ type: "timestamp", nullable: true })
   last_login_at: Date;
 
+  @Index()
   @Column({ type: "varchar", nullable: true })
   password_reset_token: string;
 
@@ -63,6 +68,7 @@ export class User {
   @Column({ default: 1 })
   token_version: number;
 
+  @Index()
   @Column({ type: "varchar", nullable: true })
   invitation_token: string;
 
@@ -80,4 +86,29 @@ export class User {
 
   @DeleteDateColumn()
   deleted_at: Date;
+
+
+  // helpers 
+  isLocked(): boolean {
+    return !!(this.acc_locked_until && this.acc_locked_until > new Date());
+  }
+
+  getLockRemainingMinutes(): number {
+    if (!this.acc_locked_until) return 0;
+    return Math.ceil((this.acc_locked_until.getTime() - Date.now()) / 60000);
+  }
+
+  incrementFailedLogins(maxAttempts: number, lockDurationMinutes: number): void {
+    this.failed_logins = (this.failed_logins || 0) + 1;
+    if (this.failed_logins >= maxAttempts) {
+      this.acc_locked_until = new Date(Date.now() + lockDurationMinutes * 60000);
+    }
+  }
+
+  resetFailedLoginsWhileLoginSuccess(): void {
+    this.failed_logins = 0;
+    this.acc_locked_until = null;
+    this.last_login_at = new Date();
+    this.token_version = (this.token_version || 0) + 1;
+  }
 }

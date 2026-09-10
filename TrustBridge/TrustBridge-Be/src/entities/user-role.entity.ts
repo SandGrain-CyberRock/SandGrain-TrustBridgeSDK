@@ -1,6 +1,7 @@
 import { Entity, PrimaryColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { User } from './user.entity';
+
 import { Role } from './role.entity';
+import { User } from './user.entity';
 
 @Entity('tenant_user_roles')
 export class UserRole {

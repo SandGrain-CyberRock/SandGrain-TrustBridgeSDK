@@ -1,4 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+
+import { Type } from "class-transformer";
 import {
   IsString,
   IsNotEmpty,
@@ -8,7 +10,6 @@ import {
   MaxLength,
   MinLength,
 } from "class-validator";
-import { Type } from "class-transformer";
 
 class TenantCredentialsDto {
   // @ApiProperty({

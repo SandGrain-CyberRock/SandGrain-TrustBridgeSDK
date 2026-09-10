@@ -18,11 +18,12 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
-import { Permissions } from "../../common/decorators";
+
 import { CategoryService } from "./category.service";
 import { CreateCategoryDto } from "./dto/create-category.dto";
 import { UpdateCategoryDto } from "./dto/update-category.dto";
+import { Permissions } from "../../common/decorators";
+import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
 
 @ApiTags("Master Data - Categories")
 @ApiBearerAuth("JWT-auth")

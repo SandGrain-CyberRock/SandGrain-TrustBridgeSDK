@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsIn, IsInt, IsOptional, IsString, Min } from "class-validator";
+import { IsDate, IsIn, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export class FindLogsQueryDto {
     @IsOptional()
@@ -18,7 +18,11 @@ export class FindLogsQueryDto {
     process_type?: string;
 
     @IsOptional()
-    @IsIn(["in_progress", "success", "failed", "info"])
+    @IsString()
+    eventScope?: string;
+
+    @IsOptional()
+    @IsString()
     status?: string;
 
     @IsOptional()
@@ -32,4 +36,14 @@ export class FindLogsQueryDto {
     @IsOptional()
     @IsString()
     tid?: string;
+
+    @IsOptional()
+    @Type(() => Date)
+    @IsDate()
+    fromDate?: Date;
+
+    @IsOptional()
+    @Type(() => Date)
+    @IsDate()
+    toDate?: Date;
 }

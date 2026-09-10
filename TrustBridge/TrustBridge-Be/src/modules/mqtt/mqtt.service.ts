@@ -4,9 +4,12 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
+
 import * as mqtt from "mqtt";
 import { TraceLogService } from "src/common/trace-logs/trace-log.service";
 import { CloudLogInput } from "src/common/trace-logs/types";
+
+import { SHARE_GROUP } from "./constant";
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -57,7 +60,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       // Subscribe to gateway status topic
       this.client.subscribe(
-        "sandgrain/v1/+/gw_status",
+        `$share/${SHARE_GROUP}/sandgrain/v1/+/gw_status`,
         { qos: 0 },
         (err) => {
           if (err)
@@ -74,7 +77,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       // Subscribe to auth result notifications from cloud SDK (fault injection flow)
       this.client.subscribe(
-        "sandgrain/v1/+/cloud_log",
+        `$share/${SHARE_GROUP}/sandgrain/v1/+/cloud_log`,
         { qos: 0 },
         (err) => {
           if (err)
@@ -93,7 +96,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       // Subscribe to device presence topic (all devices)
       this.client.subscribe(
-        "sandgrain/v1/+/status",
+        `$share/${SHARE_GROUP}/sandgrain/v1/+/status`,
         { qos: 0 },
         (err) => {
           if (err)
@@ -109,7 +112,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       // Subscribe to gateway log topic (all devices)
       this.client.subscribe(
-        "sandgrain/v1/+/gw_log",
+        `$share/${SHARE_GROUP}/sandgrain/v1/+/gw_log`,
         { qos: 0 },
         (err) => {
           if (err)
@@ -125,7 +128,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       // Subscribe to auth result notifications from cloud SDK (fault injection flow)
       this.client.subscribe(
-        "sandgrain/v1/+/auth_result",
+        `$share/${SHARE_GROUP}/sandgrain/v1/+/auth_result`,
         { qos: 0 },
         (err) => {
           if (err)
@@ -141,7 +144,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       // Subscribe to claim-token forwards from the cloud SDK (device flow auto-claim)
       this.client.subscribe(
-        "sandgrain/v1/+/claim",
+        `$share/${SHARE_GROUP}/sandgrain/v1/+/claim`,
         { qos: 0 },
         (err) => {
           if (err)
@@ -281,6 +284,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`Published ${action} for TID=${tid}`);
     return responsePromise;
+  }
+
+  async checkHealth(): Promise<boolean> {
+    return this.connected;
   }
 
   /**
@@ -542,7 +549,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       app_message_seq: payload.app_message_seq ?? undefined,
       process_type: "authentication",
       step: "auth_result",
-      status: payload?.auth_status,
+      status: payload?.auth_status?.toLowerCase() === "auth_ok" ? "success" : "failed",
       response_data: payload,
       attempt_number: 1,
     });
@@ -581,12 +588,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.traceLogService.log({
         leaf_id: tid,
         event_scope: "leaf",
-        request_data: JSON.parse(message.toString()),
+        response_data: JSON.parse(message.toString()),
         process_type: "installation",
         step: "claim",
         status: "failed",
         message: "claim forward missing claim_token_id",
-        response_data: payload,
+        request_data: payload,
         attempt_number: 1,
       });
       return;
@@ -595,11 +602,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.traceLogService.log({
       leaf_id: tid,
       event_scope: "leaf",
-      request_data: JSON.parse(message.toString()),
+      response_data: JSON.parse(message.toString()),
       process_type: "installation",
       step: "claim",
       status: "success",
-      response_data: payload,
+      request_data: payload,
       attempt_number: 1,
     });
     if (this.onClaimCb) this.onClaimCb(tid, claimTokenId);
@@ -607,11 +614,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   private handleGatewayStatusMessage(topic: string, message: Buffer): void {
     let status: string;
+    let parsedPayload: unknown;
     try {
-      const parsed = JSON.parse(message.toString());
-      status = parsed?.status || String(parsed);
+      parsedPayload = JSON.parse(message.toString());
+      status = (parsedPayload as any)?.status || String(parsedPayload);
     } catch {
       status = message.toString().trim();
+      parsedPayload = status;
     }
     console.log("Gateway status message received", message.toString(), topic);
     if (status === "online") {
@@ -620,15 +629,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       console.log("Gateway status message received", message.toString(), topic);
       // TODO: handle offline status
     }
-
-    const ipAddress = message.toString().split(" ")[2];
+    const parts = topic.split("/");
+    const ipAddress = parts[2];
     this.traceLogService.log({
       edge_node_id: ipAddress ?? null,
       event_scope: "edge_node",
-      request_data: JSON.parse(message.toString()),
+      response_data: parsedPayload,
       process_type: "authentication",
       step: "gw_status",
-      status: status,
+      status: status?.toLowerCase() === "online" ? "success" : "failed",
       message: `gateway ${status}`,
       attempt_number: 1,
     });
@@ -665,9 +674,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       app_message_seq: log.app_message_seq ?? undefined,
       process_type: "authentication",
       step: `gw:${log?.step}`,
-      status: log?.status,
+      status: log?.status?.toLowerCase() === "ok" ? "success" : "failed",
       message: `[Gateway] ${log?.message}`,
-      request_data: JSON.parse(message.toString()),
+      response_data: JSON.parse(message.toString()),
       attempt_number: log?.attempt,
     });
 
@@ -679,11 +688,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const tid = parts[2].toLowerCase();
 
     let status: string;
+    let parsedPayload: unknown;
     try {
-      const parsed = JSON.parse(message.toString());
-      status = parsed?.status || String(parsed);
+      parsedPayload = JSON.parse(message.toString());
+      status = (parsedPayload as any)?.status || String(parsedPayload);
     } catch {
       status = message.toString().trim();
+      parsedPayload = status; // not valid JSON, fall back to the raw string
     }
 
     this.logger.log(`Device presence: TID=${tid} status=${status}`);
@@ -701,6 +712,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       );
       if (this.onDeviceOfflineCb) this.onDeviceOfflineCb(tid);
     }
+
+    this.traceLogService.log({
+      leaf_id: tid,
+      event_scope: "leaf",
+      process_type: "authentication",
+      step: "device_status",
+      status: status?.toLowerCase() === "online" ? "success" : "failed",
+      message: `device ${status}`,
+      response_data: parsedPayload,
+      attempt_number: 1,
+    });
   }
 
   isDeviceOnline(tid: string): boolean {
@@ -760,6 +782,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       `Cloud log: TID=${tid} component=${log.component} action=${log.action} — ${log.message}`,
     );
 
+    const status = this.resolveCloudLogStatus(log.status);
+    if (!status) return;
+
     this.traceLogService.log({
       leaf_id: log.device_id?.toLowerCase() ?? tid,
       edge_node_id: log.gateway_id ?? null,
@@ -768,7 +793,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       app_message_seq: log.app_message_seq ?? undefined,
       process_type: this.resolveCloudProcessType(log.action),
       step: `cloud:${log.component ?? "unknown"}:${log.action ?? "log"}`,
-      status: this.resolveCloudLogStatus(log),
+      status: status,
       message: log.message,
       request_data: log.request_data,
       response_data: log,
@@ -787,23 +812,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     return "authentication"; // requestCW, replyRW, requestRW, etc.
   }
 
-  private resolveCloudLogStatus(log: {
-    level?: string;
-    http_status?: number;
-  }): string {
-    if (typeof log.http_status === "number") {
-      return log.http_status >= 200 && log.http_status < 300
-        ? "success"
-        : "failed";
-    }
-    switch (log.level?.toUpperCase()) {
-      case "ERROR":
+  private resolveCloudLogStatus(status?: string): string {
+    if (!status) return null;
+    switch (status?.toLowerCase()) {
+      case "success":
+        return "success";
+      case "failed":
         return "failed";
-      case "WARN":
-      case "WARNING":
+      case "in_progress":
         return "in_progress";
       default:
-        return "in_progress";
+        return null;
     }
   }
 }

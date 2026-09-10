@@ -26,6 +26,7 @@ export interface FindLogsResult {
 
 
 export interface CloudLogInput {
+    status?: string;
     timestamp?: string;
     component?: string;
     level?: string;

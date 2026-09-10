@@ -1,5 +1,6 @@
-import { IsString, IsOptional } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+import { IsString, IsOptional } from 'class-validator';
 
 export class UpdatePermissionDto {
   @ApiPropertyOptional({ example: 'report:export' })

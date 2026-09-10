@@ -13,13 +13,14 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+
 import { SystemActivityService } from './system-activity.service';
-import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { Permissions } from '../../common/decorators';
 import {
   UnauthorizedResponseDto,
   ForbiddenResponseDto,
 } from '../../common/dto';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 
 @ApiTags('System Activity')
 @ApiBearerAuth('JWT-auth')

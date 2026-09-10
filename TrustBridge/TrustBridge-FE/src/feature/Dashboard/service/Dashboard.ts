@@ -1,4 +1,9 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { httpClient } from '../../../lib/Axios';
 import { DASHBOARD_API, SYSTEM_ACTIVITY_API, TRACING_LOGS_API } from '../api';
 import type { SuccesRolesResponse } from '../../../lib/types';
@@ -29,10 +34,12 @@ export interface DashboardStats {
 
 // tracing logs
 export interface TracingLogsParams {
-  limit: number;
+  limit?: number;
   cursor?: number;
-  process_type?: string;
+  eventScope?: string;
   status?: string;
+  fromDate?: string;
+  toDate?: string;
 }
 
 // Dashboard Stats
@@ -175,5 +182,48 @@ export const useGetTracingLogs = (params?: TracingLogsParams) => {
     queryFn: () => getTracingLogs(params),
     select: ({ data }) => data.data,
     refetchInterval: (query) => (query.state.error ? false : 10000),
+    placeholderData: keepPreviousData,
+  });
+};
+
+const downloadTracingLogs = (params?: TracingLogsParams) => {
+  const cleanParams = params
+    ? Object.fromEntries(
+        Object.entries(params).filter(
+          ([, value]) => value !== undefined && value !== null && value !== '',
+        ),
+      )
+    : undefined;
+
+  return httpClient.get(TRACING_LOGS_API.DOWNLOAD_ALL, {
+    params: cleanParams,
+    responseType: 'blob',
+  });
+};
+
+const extractFilename = (contentDisposition?: string): string => {
+  const fallback = `trace-logs-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+  if (!contentDisposition) return fallback;
+  const match = contentDisposition.match(/filename="?([^"]+)"?/);
+  return match?.[1] ?? fallback;
+};
+
+export const useDownloadTracingLogs = () => {
+  return useMutation({
+    mutationFn: (params?: TracingLogsParams) => downloadTracingLogs(params),
+    onSuccess: (response) => {
+      const filename = extractFilename(response.headers['content-disposition']);
+      const blob = new Blob([response.data], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(url);
+    },
   });
 };

@@ -42,18 +42,10 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 BE_REPO="${BE_REPO:-$ROOT_DIR/TrustBridge-BE}"
 FE_REPO="${FE_REPO:-$ROOT_DIR/TrustBridge-FE}"
-# Locate the SDK repo across layouts, newest first:
-#   $ROOT_DIR/../SandGrain-SDK  SandGrain-TrustBridgeSDK layout: the SDK is a
-#                               top-level dir, sibling of TrustBridge/ (BE/FE).
-#   $ROOT_DIR/../SDK            older layout, before the SDK dir was renamed.
-#   $ROOT_DIR/sandgrain-sdk     flat clone, repo renamed trustbridge-sdk-v3 -> sandgrain-sdk.
-#   $ROOT_DIR/trustbridge-sdk-v3  legacy name, kept so existing clones still work.
+# SDK repo was renamed trustbridge-sdk-v3 -> sandgrain-sdk. Prefer the new name;
+# fall back to the old one so existing clones keep working.
 if [ -n "${SDK_REPO:-}" ]; then
     :
-elif [ -d "$ROOT_DIR/../SandGrain-SDK" ]; then
-    SDK_REPO="$(cd "$ROOT_DIR/../SandGrain-SDK" && pwd)"
-elif [ -d "$ROOT_DIR/../SDK" ]; then
-    SDK_REPO="$(cd "$ROOT_DIR/../SDK" && pwd)"
 elif [ -d "$ROOT_DIR/sandgrain-sdk" ]; then
     SDK_REPO="$ROOT_DIR/sandgrain-sdk"
 else
@@ -72,6 +64,12 @@ NETWORK_NAME="trustbridge-net"
 # defaults to file-based creds.
 export CREDENTIALS_SOURCE="trustbridge"
 export BE_URL="http://be:3000/api"
+
+
+# Trace logging
+export TRACE_LOG_PATH="trace/trace_cloud.jsonl"
+export TRACE_LOG_DEBUG="1"
+export TRACE_LOG_MQTT="1"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 err()  { printf "\033[31m[start-all] %s\033[0m\n" "$*" >&2; }
@@ -230,7 +228,6 @@ case "$CMD" in
             log "  FE        → http://${LAN_IP}:5173    or  http://${HOST_NAME}.local:5173"
             log "  BE        → http://${LAN_IP}:3000    or  http://${HOST_NAME}.local:3000"
             log "  MQTT      → ${LAN_IP}:1883          or  ${HOST_NAME}.local:1883"
-            log "  Discovery → http://${LAN_IP}:3000/api/discover"
             log ""
             log "Raspberry Pi setup — on each Pi run ./bootstrap-pi.sh and answer:"
             log "  hostname mode (recommended): Laptop hostname [${HOST_NAME}.local]"

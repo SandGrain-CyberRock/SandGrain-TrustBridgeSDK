@@ -5,10 +5,14 @@ import {
   ManyToOne,
   JoinColumn,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
+
 import { Device } from './device.entity';
 
 @Entity('tb_device_log')
+@Index(["device_id", "step", "status", "created_at"])
+@Index(["device_id", "process_type", "attempt_number"])
 export class DeviceLog {
   @PrimaryGeneratedColumn()
   log_id: number;

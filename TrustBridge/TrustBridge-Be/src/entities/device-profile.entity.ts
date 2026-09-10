@@ -10,10 +10,11 @@ import {
   JoinColumn,
   JoinTable,
 } from "typeorm";
+
 import { Category } from "./category.entity";
+import { ProfileDefaultParam } from "./profile-default-param.entity";
 import { SubCategory } from "./sub-category.entity";
 import { Tag } from "./tag.entity";
-import { ProfileDefaultParam } from "./profile-default-param.entity";
 
 @Entity("tb_device_profile")
 export class DeviceProfile {

@@ -1,11 +1,12 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { UserService } from "./user.service";
+
 import { UserController } from "./user.controller";
-import { User } from "../../entities/user.entity";
-import { UserRole } from "../../entities/user-role.entity";
-import { Role } from "../../entities/role.entity";
+import { UserService } from "./user.service";
 import { EmailService } from "../../common/services/email.service";
+import { Role } from "../../entities/role.entity";
+import { UserRole } from "../../entities/user-role.entity";
+import { User } from "../../entities/user.entity";
 import { SystemActivityModule } from "../system-activity/system-activity.module";
 
 @Module({

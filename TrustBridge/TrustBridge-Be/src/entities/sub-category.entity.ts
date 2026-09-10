@@ -7,10 +7,13 @@ import {
   DeleteDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from "typeorm";
+
 import { Category } from "./category.entity";
 
 @Entity("tb_sub_category")
+@Index(["ou_id", "category_id", "sub_category_name"])
 export class SubCategory {
   @PrimaryGeneratedColumn()
   sub_category_id: number;

@@ -6,13 +6,14 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+
 import { DashboardService } from './dashboard.service';
-import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 import { Permissions } from '../../common/decorators';
 import {
   UnauthorizedResponseDto,
   ForbiddenResponseDto,
 } from '../../common/dto';
+import { JwtAuthGuard, PermissionsGuard } from '../../common/guards';
 
 @ApiTags('Dashboard')
 @ApiBearerAuth('JWT-auth')

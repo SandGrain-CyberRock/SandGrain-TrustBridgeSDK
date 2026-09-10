@@ -1,3 +1,5 @@
+import { decrypt, encrypt, isEncrypted } from "src/common/crypto";
+import { encryptedTransformer } from "src/common/helpers";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -8,11 +10,17 @@ import {
   OneToMany,
   ManyToOne,
   JoinColumn,
+  Index,
 } from "typeorm";
+
 import { Device } from "./device.entity";
 import { Tenant } from "./tenant.entity";
 
+
+
 @Entity("tb_device_group")
+@Index(["group_name"])
+@Index(["tenant_id", "created_at"])
 export class DeviceGroup {
   @PrimaryGeneratedColumn()
   device_group_id: number;
@@ -23,7 +31,7 @@ export class DeviceGroup {
   @Column()
   group_name: string;
 
-  @Column()
+  @Column({ transformer: encryptedTransformer })
   password: string;
 
   @Column({ default: "ACTIVE" })

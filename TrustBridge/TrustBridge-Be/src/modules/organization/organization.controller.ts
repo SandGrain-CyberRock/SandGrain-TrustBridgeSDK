@@ -17,15 +17,11 @@ import {
   ApiParam,
   ApiBody,
 } from "@nestjs/swagger";
-import { OrganizationService } from "./organization.service";
+
 import { CreateOrganizationDto } from "./dto/create-organization.dto";
-import { UpdateOrganizationDto } from "./dto/update-organization.dto";
 import { CreateTenantDto } from "./dto/create-tenant.dto";
-import {
-  JwtAuthGuard,
-  RolesGuard,
-  PermissionsGuard,
-} from "../../common/guards";
+import { UpdateOrganizationDto } from "./dto/update-organization.dto";
+import { OrganizationService } from "./organization.service";
 import { Roles, Permissions } from "../../common/decorators";
 import {
   OrganizationResponseDto,
@@ -38,6 +34,11 @@ import {
   NotFoundResponseDto,
   ConflictResponseDto,
 } from "../../common/dto";
+import {
+  JwtAuthGuard,
+  RolesGuard,
+  PermissionsGuard,
+} from "../../common/guards";
 
 @ApiTags("Organizations")
 @ApiBearerAuth("JWT-auth")

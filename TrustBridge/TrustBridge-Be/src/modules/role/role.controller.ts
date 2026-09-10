@@ -19,15 +19,11 @@ import {
   ApiParam,
   ApiBody,
 } from "@nestjs/swagger";
-import { RoleService } from "./role.service";
+
+import { AssignPermissionsDto } from "./dto/assign-permissions.dto";
 import { CreateRoleDto } from "./dto/create-role.dto";
 import { UpdateRoleDto } from "./dto/update-role.dto";
-import { AssignPermissionsDto } from "./dto/assign-permissions.dto";
-import {
-  JwtAuthGuard,
-  RolesGuard,
-  PermissionsGuard,
-} from "../../common/guards";
+import { RoleService } from "./role.service";
 import { Roles, Permissions } from "../../common/decorators";
 import {
   RoleResponseDto,
@@ -39,6 +35,11 @@ import {
   NotFoundResponseDto,
   ConflictResponseDto,
 } from "../../common/dto";
+import {
+  JwtAuthGuard,
+  RolesGuard,
+  PermissionsGuard,
+} from "../../common/guards";
 
 @ApiTags("Roles")
 @ApiBearerAuth("JWT-auth")

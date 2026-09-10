@@ -20,11 +20,12 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
-import { Permissions } from "../../common/decorators";
+
 import { DeviceProfileService } from "./device-profile.service";
 import { CreateDeviceProfileDto } from "./dto/create-device-profile.dto";
 import { UpdateDeviceProfileDto } from "./dto/update-device-profile.dto";
+import { Permissions } from "../../common/decorators";
+import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
 
 @ApiTags("Device Profiles")
 @ApiBearerAuth("JWT-auth")

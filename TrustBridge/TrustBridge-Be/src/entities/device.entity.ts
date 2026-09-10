@@ -7,12 +7,21 @@ import {
   DeleteDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from "typeorm";
-import { Tenant } from "./tenant.entity";
+
 import { DeviceGroup } from "./device-group.entity";
 import { DeviceProfile } from "./device-profile.entity";
+import { Tenant } from "./tenant.entity";
 
 @Entity("tb_device")
+@Index(["is_active", "status", "next_lifecycle_auth_at"])
+@Index(["tenant_id", "created_at"])
+@Index(["tenant_id", "status"])
+@Index(["status"])
+@Index(["device_group_id"])
+@Index(["profile_id"])
+@Index(["device_name"])
 export class Device {
   @PrimaryGeneratedColumn()
   device_id: number;

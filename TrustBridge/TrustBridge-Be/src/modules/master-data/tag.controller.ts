@@ -18,11 +18,12 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
-import { Permissions } from "../../common/decorators";
-import { TagService } from "./tag.service";
+
 import { CreateTagDto } from "./dto/create-tag.dto";
 import { UpdateTagDto } from "./dto/update-tag.dto";
+import { TagService } from "./tag.service";
+import { Permissions } from "../../common/decorators";
+import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
 
 @ApiTags("Master Data - Tags")
 @ApiBearerAuth("JWT-auth")

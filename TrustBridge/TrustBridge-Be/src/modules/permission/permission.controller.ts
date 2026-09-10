@@ -19,14 +19,10 @@ import {
   ApiQuery,
   ApiBody,
 } from "@nestjs/swagger";
-import { PermissionService } from "./permission.service";
+
 import { CreatePermissionDto } from "./dto/create-permission.dto";
 import { UpdatePermissionDto } from "./dto/update-permission.dto";
-import {
-  JwtAuthGuard,
-  RolesGuard,
-  PermissionsGuard,
-} from "../../common/guards";
+import { PermissionService } from "./permission.service";
 import { Roles, Permissions } from "../../common/decorators";
 import {
   PermissionResponseDto,
@@ -38,6 +34,11 @@ import {
   NotFoundResponseDto,
   ConflictResponseDto,
 } from "../../common/dto";
+import {
+  JwtAuthGuard,
+  RolesGuard,
+  PermissionsGuard,
+} from "../../common/guards";
 
 @ApiTags("Permissions")
 @ApiBearerAuth("JWT-auth")

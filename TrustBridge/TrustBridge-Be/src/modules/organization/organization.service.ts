@@ -5,13 +5,15 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { Repository } from 'typeorm';
-import { OrganizationUnit } from '../../entities/organization-unit.entity';
-import { Tenant } from '../../entities/tenant.entity';
-import { TenantUserCredential } from '../../entities/tenant-user-credential.entity';
+
 import { CreateOrganizationDto } from './dto/create-organization.dto';
-import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
+import { OrganizationUnit } from '../../entities/organization-unit.entity';
+import { TenantUserCredential } from '../../entities/tenant-user-credential.entity';
+import { Tenant } from '../../entities/tenant.entity';
 import { SystemActivityService } from '../system-activity/system-activity.service';
 
 @Injectable()

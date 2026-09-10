@@ -1,3 +1,7 @@
+import * as fs from "fs";
+import * as path from "path";
+
+import { InjectQueue } from "@nestjs/bullmq";
 import {
   BadRequestException,
   Injectable,
@@ -9,25 +13,31 @@ import {
   forwardRef,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, In, Repository, Like, IsNull } from "typeorm";
+
+import { Queue } from "bullmq";
 import { Workbook } from "exceljs";
-import * as fs from "fs";
-import * as path from "path";
-import { Device } from "../../entities/device.entity";
+import { JOB_OFFLINE_DEVICE_AUTH, JOB_ONLINE_DEVICE_AUTH, QUEUE_OFFLINE_DEVICE_AUTH, QUEUE_ONLINE_DEVICE_AUTH } from "src/common/queue/auth/constant";
+import { DataSource, In, Repository, IsNull } from "typeorm";
+
+import { DeviceAuthService } from "./device-auth.service";
+import { CreateDeviceDto } from "./dto/create-device.dto";
+import { UpdateDeviceDto } from "./dto/update-device.dto";
+import type { ParsedBulkImport } from "./utils/parse-bulk-import";
 import { DeviceGroup } from "../../entities/device-group.entity";
 import { DeviceProfile } from "../../entities/device-profile.entity";
+import { Device } from "../../entities/device.entity";
 import { TenantUserCredential } from "../../entities/tenant-user-credential.entity";
-import { CreateDeviceDto } from "./dto/create-device.dto";
-import type { ParsedBulkImport } from "./utils/parse-bulk-import";
-import { UpdateDeviceDto } from "./dto/update-device.dto";
-import { DeviceAuthService } from "./device-auth.service";
-import { SystemActivityService } from "../system-activity/system-activity.service";
 import { MqttService } from "../mqtt/mqtt.service";
+import { SystemActivityService } from "../system-activity/system-activity.service";
 import { TenantApiService } from "../tenant-api/tenant-api.service";
 
 @Injectable()
 export class DeviceService implements OnModuleInit {
   private readonly logger = new Logger(DeviceService.name);
+
+  private static readonly ONLINE_RECHECK_DELAY_MS = 3000;
+  private static readonly BULK_IMPORT_INSERT_CHUNK = 500;
+  private static readonly BULK_IMPORT_UPDATE_CONCURRENCY = 20;
 
   onModuleInit(): void {
     // Write whitelist + credentials on startup so the gateway always has up-to-date files
@@ -50,6 +60,8 @@ export class DeviceService implements OnModuleInit {
     private systemActivityService: SystemActivityService,
     private mqttService: MqttService,
     private tenantApiService: TenantApiService,
+    @InjectQueue(QUEUE_ONLINE_DEVICE_AUTH) private onlineAuthQueue: Queue,
+    @InjectQueue(QUEUE_OFFLINE_DEVICE_AUTH) private offlineAuthQueue: Queue,
   ) { }
 
   async create(
@@ -133,189 +145,13 @@ export class DeviceService implements OnModuleInit {
         // Log activity error silently
       });
 
-    // For single device addition: check if device has offline credentials.
-    // - If offline_cw && offline_rw exist: process immediately via offline flow (cloud auth)
-    // - Otherwise: check if device is currently online via MQTT:
-    //   - If ONLINE: trigger authentication immediately
-    //   - If OFFLINE: set to idle and wait for device to come online via MQTT presence
-    if (saved.offline_cw && saved.offline_rw) {
-      // Offline flow with pre-computed credentials - process immediately (cloud auth)
-      await this.deviceRepo.update(saved.device_id, {
-        status: "inprogress",
-        status_message: "Processing offline authentication...",
-      });
-      saved.status = "inprogress";
-      saved.status_message = "Processing offline authentication...";
+    await this.routeDeviceAuth(saved);
 
-      this.deviceAuthService
-        .processOfflineDeviceAuth(saved, saved.offline_cw, saved.offline_rw)
-        .catch(() => { });
-    } else {
-      // Check if device is currently online via MQTT
-      // Use lowercase to match how TIDs are stored in MQTT service
-      const tokenIdLower = saved.token_id.toLowerCase();
-      this.logger.log(`Checking if device is online: token_id=${tokenIdLower}`);
-      this.logger.log(
-        `Current onlineTids: ${JSON.stringify([...this.mqttService.getOnlineTids()])}`,
-      );
-
-      const isDeviceOnline = saved.token_id
-        ? this.mqttService.isDeviceOnline(saved.token_id.toLowerCase())
-        : false;
-
-      this.logger.log(`isDeviceOnline result: ${isDeviceOnline}`);
-
-      // Always start as idle — auth status is set by processOnlineDeviceAuth itself.
-      // Never pre-set "inprogress" here: if onlineTids has a stale entry (SDK was
-      // killed without publishing "offline"), the device would get stuck in
-      // "inprogress" for 2+ minutes while the auth MQTT calls time out.
-      await this.deviceRepo.update(saved.device_id, {
-        status: "idle",
-        status_message: isDeviceOnline
-          ? "Waiting for device to come online"
-          : "Waiting for device to come online",
-      });
-      saved.status = "idle";
-
-      if (isDeviceOnline) {
-        this.deviceAuthService.processOnlineDeviceAuth(saved).catch(() => { });
-      } else {
-        // Race condition: the MQTT "online" presence may have fired just before the device
-        // was inserted into the DB (so handleDeviceOnline skipped it). Re-check after a
-        // short delay and trigger auth in the background if it's now online.
-        const deviceId = saved.device_id;
-        const tokenId = saved.token_id;
-        setTimeout(async () => {
-          if (this.mqttService.isDeviceOnline(tokenId)) {
-            const fresh = await this.deviceRepo.findOne({
-              where: { device_id: deviceId },
-              relations: ["deviceGroup"],
-            });
-            if (
-              fresh &&
-              (fresh.status === "idle" || fresh.status === "rejected")
-            ) {
-              this.deviceAuthService
-                .processOnlineDeviceAuth(fresh)
-                .catch(() => { });
-            }
-          }
-        }, 3000);
-      }
-    }
 
     return saved;
   }
 
-  async bulkCreate(
-    dtos: CreateDeviceDto[],
-    tenantId: string,
-  ): Promise<Device[]> {
-    // Validate all device group IDs exist
-    const groupIds = [...new Set(dtos.map((dto) => dto.device_group_id))];
-    const groups = await this.deviceGroupRepo.findByIds(groupIds);
-    const groupMap = new Map(groups.map((g) => [g.device_group_id, g]));
-
-    for (const groupId of groupIds) {
-      if (!groupMap.has(groupId)) {
-        throw new NotFoundException(
-          `Device group with ID ${groupId} not found`,
-        );
-      }
-    }
-
-    // Resolve default profile for devices that have no profile_id set
-    const defaultProfile = await this.deviceProfileRepo.findOne({
-      where: { is_default: true },
-    });
-    if (defaultProfile) {
-      for (const dto of dtos) {
-        if (!dto.profile_id) {
-          dto.profile_id = defaultProfile.profile_id;
-        }
-      }
-    }
-
-    // optionally validate profile ids
-    const profileIds = [
-      ...new Set(dtos.map((dto) => dto.profile_id).filter(Boolean)),
-    ];
-    if (profileIds.length > 0) {
-      const profiles = await this.deviceProfileRepo.findByIds(
-        profileIds as number[],
-      );
-      const profileMap = new Map(profiles.map((p) => [p.profile_id, p]));
-      for (const pid of profileIds) {
-        if (!profileMap.has(pid as number)) {
-          throw new NotFoundException(
-            `Device profile with ID ${pid} not found`,
-          );
-        }
-      }
-    }
-
-    // Always override tenant_id from JWT, never trust the client
-    for (const dto of dtos) {
-      dto.tenant_id = tenantId ?? null;
-    }
-
-    // Create devices in a transaction
-    const savedDevices = await this.dataSource.transaction(async (manager) => {
-      const devices = dtos.map((dto) => manager.create(Device, dto));
-      return manager.save(devices);
-    });
-
-    // Attach device groups for auth process
-    for (const device of savedDevices) {
-      device.deviceGroup = groupMap.get(device.device_group_id);
-    }
-
-    // Offline devices: run auth immediately using pre-computed CW/RW from Excel.
-    // Online devices: trigger auth if chip is already online, otherwise wait for it to connect.
-    const offlineDevices = savedDevices.filter(
-      (d) => d.offline_cw && d.offline_rw,
-    );
-    const onlineDevices = savedDevices.filter(
-      (d) => !d.offline_cw || !d.offline_rw,
-    );
-
-    if (offlineDevices.length > 0) {
-      this.processOfflineDevicesSequentially(offlineDevices).catch(() => { });
-    }
-
-    const alreadyOnline = onlineDevices.filter(
-      (d) => d.token_id && this.mqttService.isDeviceOnline(d.token_id),
-    );
-    const waitingOnline = onlineDevices.filter(
-      (d) => !d.token_id || !this.mqttService.isDeviceOnline(d.token_id),
-    );
-
-    for (const d of alreadyOnline) {
-      this.deviceAuthService.processOnlineDeviceAuth(d).catch(() => { });
-    }
-
-    if (waitingOnline.length > 0) {
-      await this.deviceRepo
-        .createQueryBuilder()
-        .update(Device)
-        .set({ status_message: "Waiting for device to come online" })
-        .whereInIds(waitingOnline.map((d) => d.device_id))
-        .execute();
-      for (const d of waitingOnline) {
-        d.status_message = "Waiting for device to come online";
-      }
-    }
-
-    // publish the enrolled TIDs to the gateway
-    this.deviceAuthService.publishEnrolledTids(savedDevices.map((d) => d.token_id));
-
-    // Sync gateway whitelist with all newly enrolled devices
-    this.syncGatewayWhitelist().catch(() => { });
-
-    return savedDevices;
-  }
-
-  async bulkImportV2(
+  async bulkImport(
     parsed: ParsedBulkImport,
     jwtTenantId: string,
   ): Promise<{ count: number; errors: string[] }> {
@@ -350,59 +186,52 @@ export class DeviceService implements OnModuleInit {
     const processedDevices: Device[] = [];
 
     await this.dataSource.transaction(async (manager) => {
+      // 1. Batch-fetch all existing devices in ONE query instead of N
+      const tokenIds = devices.map((d) => d.token_id);
+      const existingDevices = await manager.find(Device, {
+        where: { token_id: In(tokenIds) },
+      });
+      const existingMap = new Map(existingDevices.map((d) => [d.token_id, d]));
+
+      const toInsert: Device[] = [];
+      const toUpdate: Device[] = [];
+
       for (let i = 0; i < devices.length; i++) {
         const entry = devices[i];
         const row = i + 1;
 
-        // Validate group exists
         const group = groupMap.get(entry.group_id);
         if (!group) {
           errors.push(`Device ${row}: group '${entry.group_id}' not found`);
           continue;
         }
 
-        // Validate profile if specified
         if (entry.profile_id && !profileMap.has(entry.profile_id)) {
-          errors.push(
-            `Device ${row}: profile ID ${entry.profile_id} not found`,
-          );
+          errors.push(`Device ${row}: profile ID ${entry.profile_id} not found`);
           continue;
         }
 
         const resolvedProfileId =
           entry.profile_id || defaultProfile?.profile_id || undefined;
 
-        // Check for existing device by TID (token_id)
-        const existing = await manager.findOne(Device, {
-          where: { token_id: entry.token_id },
-        });
+        const existing = existingMap.get(entry.token_id);
 
         if (existing) {
-          // Update existing device based on overwrite flags
-          if (entry.overwrite_display) {
-            existing.device_name = entry.device_name;
-          }
-          if (entry.overwrite_status && entry.device_status) {
-            existing.status = "idle";
-          }
+          if (entry.overwrite_display) existing.device_name = entry.device_name;
+          if (entry.overwrite_status && entry.device_status) existing.status = "idle";
           if (entry.overwrite_cr_linkage) {
             existing.tenant_id = jwtTenantId;
             existing.device_group_id = group.device_group_id;
             if (entry.offline_cw) existing.offline_cw = entry.offline_cw;
             if (entry.offline_rw) existing.offline_rw = entry.offline_rw;
           }
-          if (entry.overwrite_profile) {
-            existing.profile_id = resolvedProfileId;
-          }
-          // Always update these if provided
+          if (entry.overwrite_profile) existing.profile_id = resolvedProfileId;
           if (entry.device_serial) existing.device_serial = entry.device_serial;
           existing.batch_no = batch_no;
 
-          await manager.save(existing);
           existing.deviceGroup = group;
-          processedDevices.push(existing);
+          toUpdate.push(existing);
         } else {
-          // Create new device
           const device = manager.create(Device, {
             device_name: entry.device_name,
             device_serial: entry.device_serial || undefined,
@@ -415,13 +244,31 @@ export class DeviceService implements OnModuleInit {
             status: "idle",
             batch_no,
           });
-          const saved = await manager.save(device);
-          saved.deviceGroup = group;
-          processedDevices.push(saved);
+          device.deviceGroup = group;
+          toInsert.push(device);
+        }
+      }
+
+      // 2. Bulk insert new devices — one INSERT statement, chunked
+      if (toInsert.length > 0) {
+        const CHUNK = DeviceService.BULK_IMPORT_INSERT_CHUNK;
+        for (let i = 0; i < toInsert.length; i += CHUNK) {
+          const chunk = toInsert.slice(i, i + CHUNK);
+          const saved = await manager.save(Device, chunk); // save() with an array batches internally
+          processedDevices.push(...saved);
+        }
+      }
+
+      // 3. Updates run in parallel instead of sequential awaits
+      if (toUpdate.length > 0) {
+        const CONCURRENCY = DeviceService.BULK_IMPORT_UPDATE_CONCURRENCY;
+        for (let i = 0; i < toUpdate.length; i += CONCURRENCY) {
+          const chunk = toUpdate.slice(i, i + CONCURRENCY);
+          const saved = await Promise.all(chunk.map((d) => manager.save(Device, d)));
+          processedDevices.push(...saved);
         }
       }
     });
-
     // 5. Post-import auth (skip devices with cr_already_used)
     const devicesForAuth = processedDevices.filter((d) => {
       const entry = devices.find((e) => e.token_id === d.token_id);
@@ -447,7 +294,11 @@ export class DeviceService implements OnModuleInit {
     );
 
     for (const d of alreadyOnline) {
-      this.deviceAuthService.processOnlineDeviceAuth(d).catch(() => { });
+      await this.onlineAuthQueue.add(
+        JOB_ONLINE_DEVICE_AUTH,
+        { deviceId: d.device_id },
+        { jobId: `online-auth-${d.device_id}`, removeOnComplete: true, removeOnFail: false },
+      );
     }
 
     if (waitingOnline.length > 0) {
@@ -553,9 +404,11 @@ export class DeviceService implements OnModuleInit {
             status: "inprogress",
             status_message: "Processing offline authentication...",
           });
-          this.deviceAuthService
-            .processOfflineDeviceAuth(full, full.offline_cw, full.offline_rw)
-            .catch(() => { });
+          await this.offlineAuthQueue.add(
+            JOB_OFFLINE_DEVICE_AUTH,
+            { deviceId: full.device_id, offlineCw: full.offline_cw, offlineRw: full.offline_rw },
+            { jobId: `offline-auth-${full.device_id}`, removeOnComplete: true, removeOnFail: false },
+          );
         } else {
           const tid = full.token_id?.toLowerCase();
           const isOnline = tid
@@ -568,7 +421,11 @@ export class DeviceService implements OnModuleInit {
           });
 
           if (isOnline) {
-            this.deviceAuthService.processOnlineDeviceAuth(full).catch(() => { });
+            await this.onlineAuthQueue.add(
+              JOB_ONLINE_DEVICE_AUTH,
+              { deviceId: full.device_id },
+              { jobId: `online-auth-${full.device_id}`, removeOnComplete: true, removeOnFail: false },
+            );
           } else {
             // Race-condition re-check after 3 s — same as create()
             const deviceId = full.device_id;
@@ -583,12 +440,14 @@ export class DeviceService implements OnModuleInit {
                   fresh &&
                   (fresh.status === "idle" || fresh.status === "rejected")
                 ) {
-                  this.deviceAuthService
-                    .processOnlineDeviceAuth(fresh)
-                    .catch(() => { });
+                  await this.onlineAuthQueue.add(
+                    JOB_ONLINE_DEVICE_AUTH,
+                    { deviceId: fresh.device_id },
+                    { jobId: `online-auth-${fresh.device_id}`, removeOnComplete: true, removeOnFail: false },
+                  );
                 }
               }
-            }, 3000);
+            }, DeviceService.ONLINE_RECHECK_DELAY_MS);
           }
         }
 
@@ -673,10 +532,10 @@ export class DeviceService implements OnModuleInit {
     devices: Device[],
   ): Promise<void> {
     for (const device of devices) {
-      await this.deviceAuthService.processOfflineDeviceAuth(
-        device,
-        device.offline_cw,
-        device.offline_rw,
+      await this.offlineAuthQueue.add(
+        JOB_OFFLINE_DEVICE_AUTH,
+        { deviceId: device.device_id, offlineCw: device.offline_cw, offlineRw: device.offline_rw },
+        { jobId: `offline-auth-${device.device_id}`, removeOnComplete: true, removeOnFail: false },
       );
     }
   }
@@ -782,56 +641,9 @@ export class DeviceService implements OnModuleInit {
       parameters.tenantIds = tenantIds;
     }
 
-    if (search) {
-      const isNumeric = /^\d+$/.test(search);
-      if (isNumeric) {
-        conditions.push(
-          "(device.device_id = :id OR device.token_id LIKE :q OR device.device_name LIKE :q)",
-        );
-        parameters.id = Number(search);
-        parameters.q = `%${search}%`;
-      } else {
-        conditions.push(
-          "(device.token_id LIKE :q OR device.device_name LIKE :q)",
-        );
-        parameters.q = `%${search}%`;
-      }
-    }
+    if (search) this.applySearchCondition(conditions, parameters, search);
 
-    if (status) {
-      if (status.startsWith("!")) {
-        // Exclusion: "!authenticated" → status != authenticated
-        const excludeStatus = status.substring(1);
-        conditions.push("device.status != :status");
-        parameters.status = excludeStatus;
-      } else if (status.includes(",")) {
-        // Multi-status: "authenticated,rejected" → status IN (...)
-        const statuses = status.split(",").map((s) => s.trim());
-        conditions.push("device.status IN (:...statuses)");
-        parameters.statuses = statuses;
-      } else {
-        conditions.push("device.status = :status");
-        parameters.status = status;
-      }
-    }
-
-    if (device_group_id !== undefined) {
-      if (device_group_id === 0) {
-        conditions.push("device.device_group_id IS NULL");
-      } else {
-        conditions.push("device.device_group_id = :device_group_id");
-        parameters.device_group_id = device_group_id;
-      }
-    }
-
-    if (profile_id !== undefined) {
-      if (profile_id === 0) {
-        conditions.push("device.profile_id IS NULL");
-      } else {
-        conditions.push("device.profile_id = :profile_id");
-        parameters.profile_id = profile_id;
-      }
-    }
+    this.applyDeviceListFilters(conditions, parameters, { status, device_group_id, profile_id });
 
     if (is_active !== undefined && status && !status.includes(",")) {
       // Only filter by is_active for single-status queries (not multi-status like "authenticated,rejected")
@@ -964,17 +776,10 @@ export class DeviceService implements OnModuleInit {
       .leftJoinAndSelect("device.deviceGroup", "deviceGroup")
       .leftJoinAndSelect("device.deviceProfile", "deviceProfile");
 
-    const isNumeric = /^\d+$/.test(query);
-    if (isNumeric) {
-      qb.where(
-        "device.device_id = :id OR device.token_id LIKE :q OR device.device_name LIKE :q",
-        { id: Number(query), q: `%${query}%` },
-      );
-    } else {
-      qb.where("device.token_id LIKE :q OR device.device_name LIKE :q", {
-        q: `%${query}%`,
-      });
-    }
+    const conditions: string[] = [];
+    const parameters: Record<string, any> = {};
+    this.applySearchCondition(conditions, parameters, query);
+    qb.where(conditions.join(" AND "), parameters);
 
     return qb.orderBy("device.created_at", "DESC").getMany();
   }
@@ -1053,50 +858,9 @@ export class DeviceService implements OnModuleInit {
     const conditions: string[] = [];
     const parameters: Record<string, any> = {};
 
-    if (search) {
-      const isNumeric = /^\d+$/.test(search);
-      if (isNumeric) {
-        conditions.push(
-          "(device.device_id = :id OR device.token_id LIKE :q OR device.device_name LIKE :q)",
-        );
-        parameters.id = Number(search);
-        parameters.q = `%${search}%`;
-      } else {
-        conditions.push(
-          "(device.token_id LIKE :q OR device.device_name LIKE :q)",
-        );
-        parameters.q = `%${search}%`;
-      }
-    }
+    if (search) this.applySearchCondition(conditions, parameters, search);
 
-    if (status) {
-      if (status.startsWith("!")) {
-        const excludeStatus = status.substring(1);
-        conditions.push("device.status != :status");
-        parameters.status = excludeStatus;
-      } else {
-        conditions.push("device.status = :status");
-        parameters.status = status;
-      }
-    }
-
-    if (device_group_id !== undefined) {
-      if (device_group_id === 0) {
-        conditions.push("device.device_group_id IS NULL");
-      } else {
-        conditions.push("device.device_group_id = :device_group_id");
-        parameters.device_group_id = device_group_id;
-      }
-    }
-
-    if (profile_id !== undefined) {
-      if (profile_id === 0) {
-        conditions.push("device.profile_id IS NULL");
-      } else {
-        conditions.push("device.profile_id = :profile_id");
-        parameters.profile_id = profile_id;
-      }
-    }
+    this.applyDeviceListFilters(conditions, parameters, { status, device_group_id, profile_id });
 
     if (conditions.length > 0) {
       qb.where(conditions.join(" AND "), parameters);
@@ -1219,8 +983,8 @@ export class DeviceService implements OnModuleInit {
     });
 
     const tids = devices
-      .map((d) => d.token_id?.toLowerCase())
-      .filter((t): t is string => !!t && t.length === 64);
+      .map((d) => this.toValidLowerTid(d.token_id))
+      .filter((t): t is string => t !== null);
 
     const content = tids.join("\n") + (tids.length ? "\n" : "");
     fs.writeFileSync(filePath, content, "utf8");
@@ -1238,8 +1002,8 @@ export class DeviceService implements OnModuleInit {
       where: { deleted_at: null } as any,
     });
     return devices
-      .map((d) => d.token_id?.toLowerCase())
-      .filter((t): t is string => !!t && t.length === 64);
+      .map((d) => this.toValidLowerTid(d.token_id))
+      .filter((t): t is string => t !== null);
   }
 
   /**
@@ -1253,23 +1017,8 @@ export class DeviceService implements OnModuleInit {
     });
     if (!device || !device.deviceGroup) return {};
 
-    let cred: TenantUserCredential | null = null;
-    try {
-      cred = await this.credentialRepo.findOne({
-        where: { tenant_id: device.tenant_id } as any,
-      });
-    } catch {
-      // no credentials for this tenant
-    }
-
-    return {
-      device_username: device.deviceGroup.group_name,
-      device_password: device.deviceGroup.password,
-      tenant_email: cred?.email ?? "",
-      tenant_password: cred?.password ?? "",
-      cf_access_client_id: cred?.cf_access_client_id ?? "",
-      cf_access_client_secret: cred?.cf_access_client_secret ?? "",
-    };
+    const cred = await this.findTenantCredential(device.tenant_id);
+    return this.buildCredentialPayload(device.deviceGroup, cred);
   }
 
   /**
@@ -1292,27 +1041,11 @@ export class DeviceService implements OnModuleInit {
     const result: Record<string, any> = {};
 
     for (const device of devices) {
-      const tid = device.token_id?.toLowerCase();
-      if (!tid || tid.length !== 64) continue;
-      if (!device.deviceGroup) continue;
+      const tid = this.toValidLowerTid(device.token_id);
+      if (!tid || !device.deviceGroup) continue;
 
-      let cred: TenantUserCredential | null = null;
-      try {
-        cred = await this.credentialRepo.findOne({
-          where: { tenant_id: device.tenant_id } as any,
-        });
-      } catch {
-        // skip if no credentials for this tenant
-      }
-
-      result[tid] = {
-        device_username: device.deviceGroup.group_name,
-        device_password: device.deviceGroup.password,
-        tenant_email: cred?.email ?? "",
-        tenant_password: cred?.password ?? "",
-        cf_access_client_id: cred?.cf_access_client_id ?? "",
-        cf_access_client_secret: cred?.cf_access_client_secret ?? "",
-      };
+      const cred = await this.findTenantCredential(device.tenant_id);
+      result[tid] = this.buildCredentialPayload(device.deviceGroup, cred);
     }
 
     fs.writeFileSync(filePath, JSON.stringify(result, null, 2), "utf8");
@@ -1383,23 +1116,12 @@ export class DeviceService implements OnModuleInit {
   }
 
   async getTidStatus(deviceId: number): Promise<any> {
-    const device = await this.deviceRepo.findOne({
-      where: { device_id: deviceId },
-    });
-    if (!device) throw new NotFoundException(`Device ${deviceId} not found`);
-    if (!device.tenant_id)
-      throw new BadRequestException("Device has no tenant_id");
-
+    const device = await this.getDeviceOrThrow(deviceId);
     return this.tenantApiService.searchByTid(device.tenant_id, device.token_id);
   }
 
   async getLifecycleTenantUsers(deviceId: number): Promise<any> {
-    const device = await this.deviceRepo.findOne({
-      where: { device_id: deviceId },
-    });
-    if (!device) throw new NotFoundException(`Device ${deviceId} not found`);
-    if (!device.tenant_id)
-      throw new BadRequestException("Device has no tenant_id");
+    const device = await this.getDeviceOrThrow(deviceId);
 
     try {
       // Get real tenant ID from SandGrain source of truth
@@ -1425,12 +1147,7 @@ export class DeviceService implements OnModuleInit {
     deviceId: number,
     tenantUserIds: string[],
   ): Promise<any> {
-    const device = await this.deviceRepo.findOne({
-      where: { device_id: deviceId },
-    });
-    if (!device) throw new NotFoundException(`Device ${deviceId} not found`);
-    if (!device.tenant_id)
-      throw new BadRequestException("Device has no tenant_id");
+    const device = await this.getDeviceOrThrow(deviceId);
 
     return this.tenantApiService.listIotUsers(device.tenant_id, tenantUserIds);
   }
@@ -1450,13 +1167,7 @@ export class DeviceService implements OnModuleInit {
       iotId?: string;
     },
   ): Promise<any> {
-    const device = await this.deviceRepo.findOne({
-      where: { device_id: deviceId },
-    });
-    if (!device) throw new NotFoundException(`Device ${deviceId} not found`);
-    if (!device.tenant_id)
-      throw new BadRequestException("Device has no tenant_id");
-
+    const device = await this.getDeviceOrThrow(deviceId);
     // Use direct tenant ID from database (no extra call needed)
     const result = await this.tenantApiService.updateTokenSerialLifecycle(
       device.tenant_id,
@@ -1483,5 +1194,138 @@ export class DeviceService implements OnModuleInit {
     }
 
     return { ...result, is_active };
+  }
+
+
+
+  private async routeDeviceAuth(device: Device): Promise<void> {
+    if (device.offline_cw && device.offline_rw) {
+      await this.deviceRepo.update(device.device_id, {
+        status: "inprogress",
+        status_message: "Processing offline authentication...",
+      });
+      await this.offlineAuthQueue.add(
+        JOB_OFFLINE_DEVICE_AUTH,
+        { deviceId: device.device_id, offlineCw: device.offline_cw, offlineRw: device.offline_rw },
+        { jobId: `offline-auth-${device.device_id}`, removeOnComplete: true, removeOnFail: false },
+      );
+      return;
+    }
+
+    const tid = device.token_id?.toLowerCase();
+    const isOnline = tid ? this.mqttService.isDeviceOnline(tid) : false;
+
+    await this.deviceRepo.update(device.device_id, {
+      status: "idle",
+      status_message: "Waiting for device to come online",
+    });
+
+    if (isOnline) {
+      await this.onlineAuthQueue.add(
+        JOB_ONLINE_DEVICE_AUTH,
+        { deviceId: device.device_id },
+        { jobId: `online-auth-${device.device_id}`, removeOnComplete: true, removeOnFail: false },
+      );
+    } else {
+      this.scheduleOnlineRecheck(device.device_id, device.token_id);
+    }
+  }
+
+  private scheduleOnlineRecheck(deviceId: number, tokenId: string): void {
+    setTimeout(async () => {
+      if (!this.mqttService.isDeviceOnline(tokenId)) return;
+      const fresh = await this.deviceRepo.findOne({
+        where: { device_id: deviceId },
+        relations: ["deviceGroup"],
+      });
+      if (fresh && (fresh.status === "idle" || fresh.status === "rejected")) {
+        await this.onlineAuthQueue.add(
+          JOB_ONLINE_DEVICE_AUTH,
+          { deviceId: fresh.device_id },
+          { jobId: `online-auth-${fresh.device_id}`, removeOnComplete: true, removeOnFail: false },
+        );
+      }
+    }, DeviceService.ONLINE_RECHECK_DELAY_MS);
+  }
+
+  private applySearchCondition(
+    conditions: string[],
+    parameters: Record<string, any>,
+    search: string,
+  ): void {
+    const isNumeric = /^\d+$/.test(search);
+    if (isNumeric) {
+      conditions.push("(device.device_id = :id OR device.token_id LIKE :q OR device.device_name LIKE :q)");
+      parameters.id = Number(search);
+    } else {
+      conditions.push("(device.token_id LIKE :q OR device.device_name LIKE :q)");
+    }
+    parameters.q = `%${search}%`;
+  }
+
+
+  private applyDeviceListFilters(
+    conditions: string[],
+    parameters: Record<string, any>,
+    filters: { status?: string; device_group_id?: number; profile_id?: number },
+  ): void {
+    const { status, device_group_id, profile_id } = filters;
+
+    if (status) {
+      if (status.startsWith("!")) {
+        conditions.push("device.status != :status");
+        parameters.status = status.substring(1);
+      } else if (status.includes(",")) {
+        conditions.push("device.status IN (:...statuses)");
+        parameters.statuses = status.split(",").map((s) => s.trim());
+      } else {
+        conditions.push("device.status = :status");
+        parameters.status = status;
+      }
+    }
+
+    if (device_group_id !== undefined) {
+      conditions.push(
+        device_group_id === 0 ? "device.device_group_id IS NULL" : "device.device_group_id = :device_group_id",
+      );
+      if (device_group_id !== 0) parameters.device_group_id = device_group_id;
+    }
+
+    if (profile_id !== undefined) {
+      conditions.push(profile_id === 0 ? "device.profile_id IS NULL" : "device.profile_id = :profile_id");
+      if (profile_id !== 0) parameters.profile_id = profile_id;
+    }
+  }
+
+  private async getDeviceOrThrow(deviceId: number): Promise<Device> {
+    const device = await this.deviceRepo.findOne({ where: { device_id: deviceId } });
+    if (!device) throw new NotFoundException(`Device ${deviceId} not found`);
+    if (!device.tenant_id) throw new BadRequestException("Device has no tenant_id");
+    return device;
+  }
+
+
+  private async findTenantCredential(tenantId: string): Promise<TenantUserCredential | null> {
+    try {
+      return await this.credentialRepo.findOne({ where: { tenant_id: tenantId } as any });
+    } catch {
+      return null;
+    }
+  }
+
+  private buildCredentialPayload(group: DeviceGroup, cred: TenantUserCredential | null) {
+    return {
+      device_username: group.group_name,
+      device_password: group.password,
+      tenant_email: cred?.email ?? "",
+      tenant_password: cred?.password ?? "",
+      cf_access_client_id: cred?.cf_access_client_id ?? "",
+      cf_access_client_secret: cred?.cf_access_client_secret ?? "",
+    };
+  }
+
+  toValidLowerTid(tokenId?: string): string | null {
+    const tid = tokenId?.toLowerCase();
+    return tid && tid.length === 64 ? tid : null;
   }
 }

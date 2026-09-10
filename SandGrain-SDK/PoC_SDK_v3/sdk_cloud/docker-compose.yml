@@ -62,21 +62,6 @@ services:
     environment:
       - CREDENTIALS_SOURCE=${CREDENTIALS_SOURCE:-standalone}
       - BE_URL=${BE_URL:-}
-      # Optional shared secret for BE lookups (X-Internal-Api-Key). Empty by
-      # default -> header omitted, BE calls unchanged. Set once BE enforces it.
-      - BE_API_KEY=${BE_API_KEY:-}
-      # Local traceability Off unless TRACE_LOG_PATH is present in
-      # the environment when compose runs — start-all inherits and forwards the
-      # shell env, so `TRACE_LOG_PATH=trace/trace_cloud.jsonl [TRACE_LOG_DEBUG=1]
-      # ./start-all.sh` turns it on. Empty (the default) means disabled. Point it
-      # under trace/ so it lands in the host-mounted volume below.
-      - TRACE_LOG_PATH=${TRACE_LOG_PATH:-}
-      - TRACE_LOG_DEBUG=${TRACE_LOG_DEBUG:-}
-      # cloud_log MQTT sink: truthy publishes every trace row to
-      # sandgrain/v1/<tid>/cloud_log (mirror of the gateway's gw_log) so BE can
-      # subscribe and ingest cloud logs. Independent of the file sink above;
-      # empty (default) = don't publish. TRACE_LOG_DEBUG masks request_data on it too.
-      - TRACE_LOG_MQTT=${TRACE_LOG_MQTT:-}
 
     volumes:
       - ./application_PoC_MQTT/device_credentials.json:/app/application_PoC_MQTT/device_credentials.json

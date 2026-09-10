@@ -5,9 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   DeleteDateColumn,
+  Index,
 } from "typeorm";
 
 @Entity("tb_tag")
+@Index(["ou_id", "tag_name"])
 export class Tag {
   @PrimaryGeneratedColumn()
   tag_id: number;

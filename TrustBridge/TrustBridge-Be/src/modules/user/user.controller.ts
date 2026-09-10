@@ -22,15 +22,12 @@ import {
   ApiQuery,
   ApiBody,
 } from "@nestjs/swagger";
+
 import { Response } from "express";
-import { UserService } from "./user.service";
+
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
-import {
-  JwtAuthGuard,
-  RolesGuard,
-  PermissionsGuard,
-} from "../../common/guards";
+import { UserService } from "./user.service";
 import { Permissions } from "../../common/decorators";
 import {
   UserResponseDto,
@@ -42,6 +39,11 @@ import {
   NotFoundResponseDto,
   ConflictResponseDto,
 } from "../../common/dto";
+import {
+  JwtAuthGuard,
+  RolesGuard,
+  PermissionsGuard,
+} from "../../common/guards";
 
 @ApiTags("Users")
 @ApiBearerAuth("JWT-auth")

@@ -4,11 +4,13 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+
 import { Repository } from "typeorm";
-import { ProfileDefaultParam } from "../../entities/profile-default-param.entity";
-import { DeviceProfile } from "../../entities/device-profile.entity";
+
 import { CreateProfileParamDto } from "./dto/create-profile-param.dto";
 import { UpdateProfileParamDto } from "./dto/update-profile-param.dto";
+import { DeviceProfile } from "../../entities/device-profile.entity";
+import { ProfileDefaultParam } from "../../entities/profile-default-param.entity";
 import { SystemActivityService } from "../system-activity/system-activity.service";
 
 @Injectable()

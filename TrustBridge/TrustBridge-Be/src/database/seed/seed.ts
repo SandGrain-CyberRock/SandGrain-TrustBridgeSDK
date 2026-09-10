@@ -1,7 +1,8 @@
-import { DataSource, In } from "typeorm";
 import * as bcrypt from "bcrypt";
-import { Role } from "../../entities/role.entity";
+import { DataSource, In } from "typeorm";
+
 import { Permission } from "../../entities/permission.entity";
+import { Role } from "../../entities/role.entity";
 import { User } from "../../entities/user.entity";
 
 async function insertIgnorePermissions(

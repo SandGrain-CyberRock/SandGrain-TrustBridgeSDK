@@ -1,6 +1,10 @@
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
+
 import { config } from 'dotenv';
+import { DataSource, DataSourceOptions } from 'typeorm';
 config();
+
+const isProd = process.env.NODE_ENV === 'production';
 
 export const dbConfig: TypeOrmModuleOptions = {
   type: 'mysql',
@@ -10,5 +14,19 @@ export const dbConfig: TypeOrmModuleOptions = {
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
   autoLoadEntities: true,
-  synchronize: true, // dev only - set to false in production
+  entities: ['dist/**/*.entity.js'],
+  migrations: ['dist/database/migrations/*.js'],
+  synchronize: isProd ? false : true,
+  extra: {
+    connectionLimit: isProd ? 20 : 5,
+    waitForConnections: true,
+    queueLimit: 50,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10_000,
+    idleTimeout: 60_000,
+    connectTimeout: 10_000,
+  },
 };
+
+
+export default new DataSource(dbConfig as unknown as DataSourceOptions);

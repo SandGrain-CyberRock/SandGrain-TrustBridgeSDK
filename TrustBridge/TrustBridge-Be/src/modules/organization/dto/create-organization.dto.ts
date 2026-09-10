@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
 
 export class CreateOrganizationDto {
   @ApiProperty({ example: 'Acme Corp', description: 'Organization name' })

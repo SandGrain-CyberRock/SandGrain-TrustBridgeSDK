@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
-import { MqttService } from "./mqtt.service";
+
 import { TraceLogModule } from "src/common/trace-logs/trace-log.module";
+
+import { MqttService } from "./mqtt.service";
 
 @Module({
   imports: [TraceLogModule],

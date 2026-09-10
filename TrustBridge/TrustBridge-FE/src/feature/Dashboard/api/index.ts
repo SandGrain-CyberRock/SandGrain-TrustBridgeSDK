@@ -15,4 +15,5 @@ export const SYSTEM_ACTIVITY_API = {
 
 export const TRACING_LOGS_API = {
   GET_ALL: '/api/trace-logs',
+  DOWNLOAD_ALL: '/api/trace-logs/download/all',
 };

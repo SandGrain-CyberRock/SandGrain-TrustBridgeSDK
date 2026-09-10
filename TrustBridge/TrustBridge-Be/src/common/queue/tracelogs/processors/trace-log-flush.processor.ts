@@ -1,12 +1,14 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Job } from "bullmq";
-import { Repository } from "typeorm";
-import Redis from "ioredis";
+
 import { InjectRedis } from "@nestjs-modules/ioredis";
-import { TRACE_LOG_QUEUE, TRACE_LOG_FLUSH_JOB, TRACE_LOG_BUFFER_KEY, TRACE_LOG_BATCH_SIZE } from "../constants";
+import { Job } from "bullmq";
+import Redis from "ioredis";
+import { Repository } from "typeorm";
+
 import { TraceLog } from "../../../../entities/trace-log.entity";
+import { TRACE_LOG_QUEUE, TRACE_LOG_FLUSH_JOB, TRACE_LOG_BUFFER_KEY, TRACE_LOG_BATCH_SIZE } from "../constants";
 import { POP_BATCH_SCRIPT } from "../constants";
 
 

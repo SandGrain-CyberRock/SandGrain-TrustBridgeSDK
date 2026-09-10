@@ -1,27 +1,19 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+
 import { Repository } from "typeorm";
+
+import { CreateActivityDto } from "./types";
 import { SystemActivity } from "../../entities/system-activity.entity";
 
-export interface CreateActivityDto {
-  activity_type: string;
-  entity_type: string;
-  entity_id?: number;
-  device_id?: number;
-  device_group_id?: number;
-  title: string;
-  description?: string;
-  severity?: "info" | "success" | "warning" | "error";
-  icon?: string;
-  metadata?: any;
-}
+
 
 @Injectable()
 export class SystemActivityService {
   constructor(
     @InjectRepository(SystemActivity)
     private activityRepo: Repository<SystemActivity>,
-  ) {}
+  ) { }
 
   async create(dto: CreateActivityDto): Promise<SystemActivity> {
     const activity = this.activityRepo.create({
@@ -98,7 +90,8 @@ export class SystemActivityService {
     return qb.getMany();
   }
 
-  // ── Generic CRUD helpers ──────────────────────────────────────────────────
+
+  // helpers
 
   private entityLabel(entityType: string): string {
     return entityType
@@ -157,9 +150,7 @@ export class SystemActivityService {
     });
   }
 
-  // ── Device-specific helpers ───────────────────────────────────────────────
-
-  // Helper methods for common activities
+  // device-specific helpers
   async logDeviceCreated(
     deviceId: number,
     deviceName: string,

@@ -16,19 +16,22 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from "@nestjs/swagger";
-import { TenantApiService } from "./tenant-api.service";
+
+import { Request } from "express";
+
 import { SaveTenantCredentialsDto } from "./dto/save-credentials.dto";
-import {
-  JwtAuthGuard,
-  RolesGuard,
-  PermissionsGuard,
-} from "../../common/guards";
+import { TenantApiService } from "./tenant-api.service";
 import {
   UnauthorizedResponseDto,
   ForbiddenResponseDto,
   NotFoundResponseDto,
 } from "../../common/dto";
-import { Request } from "express";
+import {
+  JwtAuthGuard,
+  RolesGuard,
+  PermissionsGuard,
+} from "../../common/guards";
+
 
 @ApiTags("Tenant API")
 @ApiBearerAuth("JWT-auth")

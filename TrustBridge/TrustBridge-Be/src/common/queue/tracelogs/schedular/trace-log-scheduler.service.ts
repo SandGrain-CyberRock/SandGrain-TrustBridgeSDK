@@ -1,6 +1,8 @@
-import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
+import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+
 import { Queue } from "bullmq";
+
 import {
     TRACE_LOG_QUEUE,
     TRACE_LOG_FLUSH_JOB,

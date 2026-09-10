@@ -1,27 +1,33 @@
+import { BullModule } from '@nestjs/bullmq';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { RedisModule } from '@nestjs-modules/ioredis';
+
+import { JwtAuthGuard } from './common/guards';
+import { HealthModule } from './common/health/health.module';
+import { HttpLoggerMiddleware } from './common/middleware/http-logger.middleware';
+import { QueuesModule } from './common/queue/auth/queues.module';
+import { TraceLogModule } from './common/trace-logs/trace-log.module';
 import { dbConfig } from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
-import { OrganizationModule } from './modules/organization/organization.module';
-import { UserModule } from './modules/user/user.module';
-import { RoleModule } from './modules/role/role.module';
-import { PermissionModule } from './modules/permission/permission.module';
-import { TenantApiModule } from './modules/tenant-api/tenant-api.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DeviceModule } from './modules/device/device.module';
 import { DeviceGroupModule } from './modules/device-group/device-group.module';
-import { SystemActivityModule } from './modules/system-activity/system-activity.module';
-import { DashboardModule } from './modules/dashboard/dashboard.module';
-import { MasterDataModule } from './modules/master-data/master-data.module';
-import { ProfileDefaultParamModule } from './modules/profile-default-param/profile-default-param.module';
 import { DeviceProfileModule } from './modules/device-profile/device-profile.module';
-import { DiscoverModule } from './modules/discover/discover.module';
-import { JwtAuthGuard } from './common/guards';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { BullModule } from '@nestjs/bullmq';
-import { RedisModule } from '@nestjs-modules/ioredis';
-import { TraceLogModule } from './common/trace-logs/trace-log.module';
+import { MasterDataModule } from './modules/master-data/master-data.module';
+import { OrganizationModule } from './modules/organization/organization.module';
+import { PermissionModule } from './modules/permission/permission.module';
+import { ProfileDefaultParamModule } from './modules/profile-default-param/profile-default-param.module';
+import { RoleModule } from './modules/role/role.module';
+import { SystemActivityModule } from './modules/system-activity/system-activity.module';
+import { TenantApiModule } from './modules/tenant-api/tenant-api.module';
+import { UserModule } from './modules/user/user.module';
+
+
+
 @Module({
   imports: [
     ThrottlerModule.forRoot([
@@ -47,6 +53,7 @@ import { TraceLogModule } from './common/trace-logs/trace-log.module';
       },
     }),
     TypeOrmModule.forRoot(dbConfig),
+    QueuesModule,
     AuthModule,
     OrganizationModule,
     UserModule,
@@ -60,8 +67,8 @@ import { TraceLogModule } from './common/trace-logs/trace-log.module';
     MasterDataModule,
     ProfileDefaultParamModule,
     DeviceProfileModule,
-    DiscoverModule,
     TraceLogModule,
+    HealthModule
   ],
   controllers: [],
   providers: [

@@ -5,11 +5,17 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
-import { Device } from './device.entity';
+
 import { DeviceGroup } from './device-group.entity';
+import { Device } from './device.entity';
 
 @Entity('tb_system_activity')
+@Index(["entity_type", "created_at"])
+@Index(["device_id"])
+@Index(["device_group_id"])
+@Index(["created_at"])
 export class SystemActivity {
   @PrimaryGeneratedColumn()
   activity_id: number;

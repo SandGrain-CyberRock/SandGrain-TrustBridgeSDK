@@ -1,3 +1,5 @@
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+
 import {
   IsString,
   IsNotEmpty,
@@ -6,7 +8,6 @@ import {
   IsOptional,
   MaxLength,
 } from "class-validator";
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 export class CreateUserDto {
   @ApiPropertyOptional({ example: 1, description: "Organization ID (optional for Super Admin)" })

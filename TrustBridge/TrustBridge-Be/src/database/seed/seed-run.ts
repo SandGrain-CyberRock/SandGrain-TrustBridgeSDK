@@ -2,8 +2,9 @@
  * Standalone seed runner — run manually with: npm run seed
  * Does NOT run on application startup.
  */
-import { DataSource } from "typeorm";
 import { config } from "dotenv";
+import { DataSource } from "typeorm";
+
 import { seed } from "./seed";
 
 config();

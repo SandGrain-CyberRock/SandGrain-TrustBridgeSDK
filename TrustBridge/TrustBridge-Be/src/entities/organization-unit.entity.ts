@@ -7,8 +7,9 @@ import {
   DeleteDateColumn,
   OneToMany,
 } from "typeorm";
-import { User } from "./user.entity";
+
 import { Tenant } from "./tenant.entity";
+import { User } from "./user.entity";
 
 @Entity("tb_organization_unit")
 export class OrganizationUnit {

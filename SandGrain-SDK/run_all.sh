@@ -626,7 +626,7 @@ write_launcher "$L_DEV" "SandGrain DEVICE" \
 if [[ "$RUN_CLOUD" == 1 ]]; then
   if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'tb-mosquitto'; then
     warn "TrustBridge Docker stack is running (tb-mosquitto owns port 1883) — standalone will conflict."
-    warn "Stop it first:   (cd '$REPO_ROOT/../TrustBridge/TrustBridge-BE' && ./start-all.sh down)"
+    warn "Stop it first:   (cd '$REPO_ROOT/../TrustBridge-BE' && ./start-all.sh down)"
   else
     case "$MQTT_HOST" in
       localhost|127.0.0.1|::1|"")

@@ -6,6 +6,7 @@ import {
   AccordionPanel,
   Badge,
   Box,
+  Button,
   Divider,
   Flex,
   Grid,
@@ -13,7 +14,7 @@ import {
   Text,
   VStack,
 } from '@chakra-ui/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ViewModal } from '../../../component/Modal/ViewModal';
 import { useModalSearchParams } from '../../../hooks/useModalSearchParams';
@@ -447,27 +448,47 @@ export const ViewDeviceForm = () => {
   const deviceId = deviceIdParam ? Number(deviceIdParam) : null;
 
   const { data: deviceDetails, isLoading } = useGetDeviceById(deviceId);
-  const { data: logs, isLoading: logsLoading } = useGetDeviceLogs(deviceId);
+
+  const [logPage, setLogPage] = useState(1);
+  const LOGS_PER_PAGE = 50;
+
+  const { data: logsResult, isLoading: logsLoading } = useGetDeviceLogs(
+    deviceId,
+    logPage,
+    LOGS_PER_PAGE,
+  );
   const { data: connectivity, isLoading: connectivityLoading } =
     useCheckDeviceConnectivity(deviceId);
 
-  // Sort all logs by log_id ascending so every downstream operation sees correct order.
-  const logList: DeviceLog[] = [...(logs ?? [])].sort(
-    (a, b) => a.log_id - b.log_id,
-  );
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLogPage(1);
+  }, [deviceId]);
+
+  const rawLogs = logsResult?.data ?? [];
+  const totalPages = logsResult?.meta.totalPages ?? 1;
+
+  // Sort this page's logs ascending so every downstream operation sees correct order.
+  const logList: DeviceLog[] = [...rawLogs].sort((a, b) => a.log_id - b.log_id);
 
   // Group logs by (process_type, attempt_number) — each combo = one user-triggered run.
   // Preserve order by first log's log_id so runs appear chronologically.
   const runMap = new Map<
     string,
-    { processType: string; attemptNumber: number; logs: DeviceLog[] }
+    {
+      processType: string;
+      attemptNumber: number;
+      displayNumber: number;
+      logs: DeviceLog[];
+    }
   >();
   for (const log of logList) {
     const processType = log.process_type ?? 'authentication';
     const attemptNumber = log.attempt_number ?? 1;
+    const displayNumber = log.display_number ?? attemptNumber;
     const key = `${processType}::${attemptNumber}`;
     if (!runMap.has(key)) {
-      runMap.set(key, { processType, attemptNumber, logs: [] });
+      runMap.set(key, { processType, attemptNumber, displayNumber, logs: [] });
     }
     runMap.get(key)!.logs.push(log);
   }
@@ -833,7 +854,7 @@ export const ViewDeviceForm = () => {
               {sortedRuns.map((run, idx) => (
                 <RunBlock
                   key={`${run.processType}::${run.attemptNumber}`}
-                  runNumber={sortedRuns.length - idx}
+                  runNumber={run.displayNumber ?? sortedRuns.length - idx}
                   processType={run.processType}
                   logs={run.logs}
                 />
@@ -841,6 +862,29 @@ export const ViewDeviceForm = () => {
             </Accordion>
           )}
         </>
+      )}
+      {totalPages > 1 && (
+        <Flex justify="center" align="center" gap={3} mt={4}>
+          <Button
+            size="sm"
+            variant="ghost"
+            isDisabled={logPage <= 1}
+            onClick={() => setLogPage((p) => p - 1)}
+          >
+            Previous
+          </Button>
+          <Text fontSize="12px" color="gray.500">
+            Page {logPage} of {totalPages}
+          </Text>
+          <Button
+            size="sm"
+            variant="ghost"
+            isDisabled={logPage >= totalPages}
+            onClick={() => setLogPage((p) => p + 1)}
+          >
+            Next
+          </Button>
+        </Flex>
       )}
     </ViewModal>
   );

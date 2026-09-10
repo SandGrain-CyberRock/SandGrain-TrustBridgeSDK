@@ -1,56 +1,73 @@
-# TrustBridge-FE
+# React + TypeScript + Vite
 
-Frontend for TrustBridge (`trustbridge-fe`) — the admin dashboard for the
-device-fleet management layer that sits on top of the SandGrain SDK auth stack.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## What's here
+Currently, two official plugins are available:
 
-- **React 19 + Vite + TypeScript**, Chakra UI.
-- Admin dashboard: devices, device hierarchies/groups, auth & comm events,
-  audit logs, organizations, users and RBAC.
-- Talks REST to the backend via **`VITE_APP_ENDPOINT`** (e.g.
-  `http://localhost:3000/`).
-- Dev server runs on **`:5173`**.
-- `docker-compose.yml` + `Dockerfile` — containerized dev server, joined to the
-  stack on the external `trustbridge-net` network.
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## Running it
+## React Compiler
 
-### As part of the full stack (recommended)
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-The FE comes up automatically with the rest of the stack via the orchestrator in
-TrustBridge-BE — this is the normal path:
+## Expanding the ESLint configuration
 
-```bash
-cd ../TrustBridge-BE
-./start-all.sh up          # or  .\start-all.ps1 up  on Windows
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
+
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+]);
 ```
 
-That builds this repo's image and starts the dev server on `:5173`, wired to the
-BE on `:3000`.
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
-### Standalone (local dev, no Docker)
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x';
+import reactDom from 'eslint-plugin-react-dom';
 
-```bash
-npm install                # lockfiles are gitignored; `npm install`, not `npm ci`
-npm run dev                # Vite dev server on :5173
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+]);
 ```
-
-Point it at a running BE by setting `VITE_APP_ENDPOINT` (via `.env` or the
-shell) before `npm run dev`.
-
-npm scripts: `dev` (Vite dev server), `build` (`tsc -b && vite build`),
-`preview` (serve the production build), `lint` (ESLint).
-
-> **Note on the Dockerfile:** `package-lock.json` (and `yarn.lock`) are
-> gitignored in this repo, so the image build uses `npm install` with an
-> optional lockfile rather than `npm ci` — a fresh clone has no committed
-> lockfile for `npm ci` to consume.
-
-## More
-
-- **[Readme_setup.md](./Readme_setup.md)** — the formal TrustBridge local
-  environment deployment & setup guide (TB-TDD-001), covering BE + FE + Cloud +
-  SDK device simulators end to end.
-- **[root README](../../README.md)** — the full stack architecture and the
-  no-cloud SDK run walkthrough.

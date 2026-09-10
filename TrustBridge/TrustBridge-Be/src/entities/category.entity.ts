@@ -6,10 +6,13 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
   OneToMany,
+  Index,
 } from "typeorm";
+
 import { SubCategory } from "./sub-category.entity";
 
 @Entity("tb_category")
+@Index(["ou_id", "category_name"])
 export class Category {
   @PrimaryGeneratedColumn()
   category_id: number;

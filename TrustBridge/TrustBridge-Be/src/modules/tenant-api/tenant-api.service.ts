@@ -4,14 +4,15 @@ import {
   HttpException,
   Logger,
   ConflictException,
+  BadRequestException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, DataSource } from "typeorm";
-import { HttpService } from "@nestjs/axios";
-import { firstValueFrom } from "rxjs";
-import { TenantUserCredential } from "../../entities/tenant-user-credential.entity";
 
-const TENANT_API_BASE_URL = process.env.TENANT_API_BASE_URL || "https://tenant-api.sandbox.sandgrain.io/api";
+import { CyberRockService } from "src/common/cyberRock/cyberRock.service";
+import { UpdateTokenSerial } from "src/common/cyberRock/types";
+import { Repository, DataSource } from "typeorm";
+
+import { TenantUserCredential } from "../../entities/tenant-user-credential.entity";
 
 @Injectable()
 export class TenantApiService {
@@ -21,8 +22,8 @@ export class TenantApiService {
   constructor(
     @InjectRepository(TenantUserCredential)
     private credentialRepo: Repository<TenantUserCredential>,
-    private httpService: HttpService,
     private dataSource: DataSource,
+    private cyberRockService: CyberRockService,
   ) { }
 
   async getCredentials(tenantId: string): Promise<TenantUserCredential> {
@@ -58,6 +59,7 @@ export class TenantApiService {
     }
   }
 
+
   async getTenantIdAndUserIdFromCyberRock({
     cf_access_client_id,
     cf_access_client_secret,
@@ -70,7 +72,8 @@ export class TenantApiService {
     password: string;
   }): Promise<{ tenantId: string; tenantUserId: string }> {
     try {
-      this.logger.log("START::TenantApiService::getTenantIdAndUserIdFromCyberRock", cf_access_client_id, email, password);
+      this.logger.log("START::TenantApiService::getTenantIdAndUserIdFromCyberRock", cf_access_client_id, cf_access_client_secret, email, password);
+
       const tokenData = await this.extractCredentialFromSandgrain({
         cf_access_client_id,
         cf_access_client_secret,
@@ -80,45 +83,34 @@ export class TenantApiService {
 
       const accessToken = tokenData?.accessToken;
       if (!accessToken) {
-        throw new HttpException("Invalid credentials", 401);
+        throw new BadRequestException("Please Enter the valid Tenant credentials");
       }
 
-      const { data: userData } = await firstValueFrom(
-        this.httpService.get(`${TENANT_API_BASE_URL}/users/me`, {
-          headers: {
-            accept: "application/json",
-            Authorization: `Bearer ${accessToken}`,
-            "CF-Access-Client-Id": cf_access_client_id,
-            "CF-Access-Client-Secret": cf_access_client_secret,
-          },
-        }),
-      );
+      const userData = await this.cyberRockService.getUserData({ accessToken, credential: { cf_access_client_id, cf_access_client_secret } });
 
       const tenantUserId = userData?.id;
       const tenantId = userData?.tenantId;
 
       if (!tenantUserId || !tenantId) {
-        throw new HttpException("Invalid credentials", 401);
+        throw new BadRequestException("Please Enter the valid Tenant credentials");
       }
       const payload = JSON.parse(
         Buffer.from(tokenData.accessToken.split(".")[1], "base64").toString(),
       );
-
       // Cache the token
-      this.tokenCache.set(tenantId, {
-        token: tokenData.accessToken,
-        expiresAt: payload.exp,
-      });
-      this.logger.log("SUCCESS::TenantApiService::getTenantIdAndUserIdFromCyberRock");
+      await this.setCachedToken(tenantId, tokenData.accessToken, payload.exp);
+      this.logger.log("SUCCESS::TenantApiService::getTenantIdAndUserIdFromCyberRock", cf_access_client_id, cf_access_client_secret, email, password);
       return {
         tenantId,
         tenantUserId,
       }
+
     } catch (error) {
-      this.logger.error("ERROR::TenantApiService::getTenantIdAndUserIdFromCyberRock", error);
+      this.logger.error("ERROR::TenantApiService::getTenantIdAndUserIdFromCyberRock", error, cf_access_client_id, cf_access_client_secret, email, password);
       throw error;
     }
   }
+
 
   private async extractCredentialFromSandgrain({
     cf_access_client_id,
@@ -132,32 +124,15 @@ export class TenantApiService {
     password: string;
   }) {
     try {
-      this.logger.log("START::TenantApiService::extractCredentialFromSandgrain", cf_access_client_id, email, password);
-      const { data } = await firstValueFrom(
-        this.httpService.post(
-          `${TENANT_API_BASE_URL}/auth/tenantUserLogin`,
-          {
-            email,
-            password,
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              accept: "application/json",
-              "CF-Access-Client-Id": cf_access_client_id,
-              "CF-Access-Client-Secret": cf_access_client_secret,
-            },
-          },
-        ),
-      );
-      this.logger.log("SUCCESS::TenantApiService::extractCredentialFromSandgrain");
+      this.logger.log("START::TenantApiService::extractCredentialFromSandgrain", cf_access_client_id, cf_access_client_secret, email, password);
+      const data = await this.cyberRockService.tenantUserLogin({ credential: { cf_access_client_id, cf_access_client_secret } }, { email, password });
+      this.logger.log("SUCCESS::TenantApiService::extractCredentialFromSandgrain", cf_access_client_id, cf_access_client_secret, email, password);
       return data
     } catch (error) {
-      this.logger.error("ERROR::TenantApiService::extractCredentialFromSandgrain", error);
+      this.logger.error("ERROR::TenantApiService::extractCredentialFromSandgrain", error, cf_access_client_id, cf_access_client_secret, email, password);
       throw error;
     }
   }
-
   async getAccessToken(
     tenantId: string,
   ): Promise<{ token: string; credential: TenantUserCredential }> {
@@ -183,10 +158,9 @@ export class TenantApiService {
         const payload = JSON.parse(
           Buffer.from(data.accessToken.split(".")[1], "base64").toString(),
         );
-        this.tokenCache.set(tenantId, {
-          token: data.accessToken,
-          expiresAt: payload.exp,
-        });
+
+        await this.setCachedToken(tenantId, data.accessToken, payload.exp);
+
 
         return { token: data.accessToken, credential };
       } catch (error: any) {
@@ -229,34 +203,16 @@ export class TenantApiService {
       searchData?: { iotUser?: string };
     },
   ): Promise<any> {
+    this.logger.log("START::TenantApiService::listIotForTenantUser", tenantId, body);
     const { token: accessToken, credential } =
       await this.getAccessToken(tenantId);
 
     try {
-      this.logger.log("START::TenantApiService::listIotForTenantUser", tenantId, body);
-      const { data } = await firstValueFrom(
-        this.httpService.post(
-          `${TENANT_API_BASE_URL}/tenants/list-iot-for-tenant-user`,
-          { ...body, id: credential.tenant_user_id },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              accept: "application/json",
-              Authorization: `Bearer ${accessToken}`,
-              "CF-Access-Client-Id": credential.cf_access_client_id,
-              "CF-Access-Client-Secret": credential.cf_access_client_secret,
-            },
-          },
-        ),
-      );
-
+      const data = await this.cyberRockService.listIotForTenantUser(credential.tenant_user_id, body, { accessToken, credential });
       this.logger.log("SUCCESS::TenantApiService::listIotForTenantUser", tenantId, body);
       return data;
     } catch (error: any) {
-      this.logger.error(
-        "Tenant API list IoT failed",
-        error.response?.data || error.message,
-      );
+      this.logger.error("ERROR::TenantApiService::listIotForTenantUser", error, tenantId, body);
       throw new HttpException(
         error.response?.data?.message ||
         error.response?.data ||
@@ -266,29 +222,19 @@ export class TenantApiService {
     }
   }
 
+
+
   async heartbeatMe(tenantId: string): Promise<any> {
+    this.logger.log("START::TenantApiService::heartbeatMe", tenantId);
     const { token: accessToken, credential } =
       await this.getAccessToken(tenantId);
 
     try {
-      this.logger.log("START::TenantApiService::heartbeatMe", tenantId);
-      const { data } = await firstValueFrom(
-        this.httpService.get(`${TENANT_API_BASE_URL}/heartbeat/me`, {
-          headers: {
-            accept: "application/json",
-            Authorization: `Bearer ${accessToken}`,
-            "CF-Access-Client-Id": credential.cf_access_client_id,
-            "CF-Access-Client-Secret": credential.cf_access_client_secret,
-          },
-        }),
-      );
+      const data = await this.cyberRockService.heartbeatMe({ accessToken, credential });
       this.logger.log("SUCCESS::TenantApiService::heartbeatMe", tenantId);
       return data;
     } catch (error: any) {
-      this.logger.error(
-        "ERROR::TenantApiService::heartbeatMe",
-        error.response?.data || error.message,
-      );
+      this.logger.error("ERROR::TenantApiService::heartbeatMe", error, tenantId);
       throw new HttpException(
         error.response?.data?.message ||
         error.response?.data ||
@@ -317,23 +263,8 @@ export class TenantApiService {
 
     try {
       this.logger.log("START::TenantApiService::createIot", tenantId, body);
-      const { data } = await firstValueFrom(
-        this.httpService.post(
-          `${TENANT_API_BASE_URL}/iot/create-iot`,
-          requestPayload,
-          {
-            headers: {
-              "Content-Type": "application/json",
-              accept: "application/json",
-              Authorization: `Bearer ${accessToken}`,
-              "CF-Access-Client-Id": credential.cf_access_client_id,
-              "CF-Access-Client-Secret": credential.cf_access_client_secret,
-            },
-          },
-        ),
-      );
+      const data = await this.cyberRockService.createIot({ accessToken, credential }, requestPayload);
 
-      this.logger.log(`createIot → response=${JSON.stringify(data)}`);
       this.logger.log("SUCCESS::TenantApiService::createIot", tenantId, body);
       return data;
     } catch (error: any) {
@@ -357,29 +288,16 @@ export class TenantApiService {
   }
 
   async getUserMe(tenantId: string): Promise<any> {
+    this.logger.log("START::TenantApiService::getUserMe", tenantId);
     const { token: accessToken, credential } =
       await this.getAccessToken(tenantId);
 
     try {
-      this.logger.log("START::TenantApiService::getUserMe", tenantId);
-      const { data } = await firstValueFrom(
-        this.httpService.get(`${TENANT_API_BASE_URL}/users/me`, {
-          headers: {
-            accept: "application/json",
-            Authorization: `Bearer ${accessToken}`,
-            "CF-Access-Client-Id": credential.cf_access_client_id,
-            "CF-Access-Client-Secret": credential.cf_access_client_secret,
-          },
-        }),
-      );
-
+      const data = await this.cyberRockService.getUserData({ accessToken, credential });
       this.logger.log("SUCCESS::TenantApiService::getUserMe", tenantId);
       return data;
     } catch (error: any) {
-      this.logger.error(
-        "ERROR::TenantApiService::getUserMe",
-        error.response?.data || error.message,
-      );
+      this.logger.error("ERROR::TenantApiService::getUserMe", error, tenantId);
       throw new HttpException(
         error.response?.data?.message ||
         error.response?.data ||
@@ -502,7 +420,7 @@ export class TenantApiService {
     cf_access_client_secret: string;
   } | null> {
     const rows = await this.dataSource.query(
-      `SELECT uc.tenant_id, uc.tenant_user_id, uc.email, uc.cf_access_client_id, uc.cf_access_client_secret
+      `SELECT uc.tenant_id, uc.tenant_user_id, uc.email, uc.cf_access_client_id
        FROM cr_tenant_user_credential uc
        INNER JOIN cr_tenant t ON t.tenant_id = uc.tenant_id
        WHERE t.ou_id = ? LIMIT 1`,
@@ -521,47 +439,51 @@ export class TenantApiService {
       cf_access_client_secret?: string;
     },
   ): Promise<{ success: boolean; message: string }> {
-    const rows = await this.dataSource.query(
-      `SELECT uc.tenant_id FROM cr_tenant_user_credential uc
-       INNER JOIN cr_tenant t ON t.tenant_id = uc.tenant_id
-       WHERE t.ou_id = ? LIMIT 1`,
-      [ouId],
-    );
-    if (!rows.length) {
+    this.logger.log("START::TenantApiService::updateCredentialsByOuId", ouId);
+
+    const existing = await this.credentialRepo
+      .createQueryBuilder("uc")
+      .innerJoin("cr_tenant", "t", "t.tenant_id = uc.tenant_id")
+      .where("t.ou_id = :ouId", { ouId })
+      .getOne();
+
+    if (!existing) {
       throw new NotFoundException("No credentials found for this organization");
     }
-    const tenantId = rows[0].tenant_id;
-    const fields: string[] = [];
-    const values: any[] = [];
-    if (dto.tenant_user_id !== undefined) {
-      fields.push("tenant_user_id = ?");
-      values.push(dto.tenant_user_id);
-    }
-    if (dto.email !== undefined) {
-      fields.push("email = ?");
-      values.push(dto.email);
-    }
-    if (dto.password !== undefined) {
-      fields.push("password = ?");
-      values.push(dto.password);
-    }
-    if (dto.cf_access_client_id !== undefined) {
-      fields.push("cf_access_client_id = ?");
-      values.push(dto.cf_access_client_id);
-    }
-    if (dto.cf_access_client_secret !== undefined) {
-      fields.push("cf_access_client_secret = ?");
-      values.push(dto.cf_access_client_secret);
-    }
-    if (fields.length === 0)
-      return { success: true, message: "Nothing to update" };
-    values.push(tenantId);
-    await this.dataSource.query(
-      `UPDATE cr_tenant_user_credential SET ${fields.join(", ")} WHERE tenant_id = ?`,
-      values,
+
+    // let tokenData: { accessToken?: string };
+    // try {
+    //   tokenData = await this.extractCredentialFromSandgrain({
+    //     email: dto.email ?? existing.email,
+    //     password: dto.password ?? existing.password,
+    //     cf_access_client_id: dto.cf_access_client_id ?? existing.cf_access_client_id,
+    //     cf_access_client_secret: dto.cf_access_client_secret ?? existing.cf_access_client_secret,
+    //   });
+    // } catch (error: any) {
+    //   this.logger.error("ERROR::TenantApiService::updateCredentialsByOuId::validate", error, ouId);
+    //   throw new HttpException(
+    //     error.response?.data?.message ||
+    //     error.response?.data ||
+    //     "Invalid credentials — verification against CyberRock failed",
+    //     error.response?.status || 401,
+    //   );
+    // }
+
+    // if (!tokenData?.accessToken) {
+    //   throw new BadRequestException("Please provide valid credentials");
+    // }
+
+    const changes = Object.fromEntries(
+      Object.entries(dto).filter(([, v]) => v !== undefined),
     );
-    // Invalidate cached token so next call re-authenticates with new creds
-    this.tokenCache.delete(tenantId);
+    if (Object.keys(changes).length === 0) {
+      return { success: true, message: "Nothing to update" };
+    }
+
+    await this.credentialRepo.update({ tenant_id: existing.tenant_id }, changes);
+    this.tokenCache.delete(existing.tenant_id);
+
+    this.logger.log("SUCCESS::TenantApiService::updateCredentialsByOuId", ouId);
     return { success: true, message: "Credentials updated successfully" };
   }
 
@@ -593,22 +515,16 @@ export class TenantApiService {
     };
   }
 
+
   async searchByTid(tenantId: string, tid: string): Promise<any> {
+    this.logger.log("START::TenantApiService::searchByTid", tenantId, tid);
     const { token, credential } = await this.getAccessToken(tenantId);
     try {
-      const { data } = await firstValueFrom(
-        this.httpService.post(
-          `${TENANT_API_BASE_URL}/token-serials/search-by-tid`,
-          { TID: tid },
-          { headers: this.buildTenantHeaders(token, credential) },
-        ),
-      );
+      const data = await this.cyberRockService.searchByTid({ accessToken: token, credential }, { tid });
+      this.logger.log("SUCCESS::TenantApiService::searchByTid", tenantId, tid);
       return data;
     } catch (error: any) {
-      this.logger.error(
-        "searchByTid failed",
-        error.response?.data || error.message,
-      );
+      this.logger.error("ERROR::TenantApiService::searchByTid", error, tenantId, tid);
       throw new HttpException(
         error.response?.data?.message ||
         error.response?.data ||
@@ -618,22 +534,16 @@ export class TenantApiService {
     }
   }
 
+
   async listTenantUsers(tenantId: string): Promise<any> {
+    this.logger.log("START::TenantApiService::listTenantUsers", tenantId);
     const { token, credential } = await this.getAccessToken(tenantId);
     try {
-      const { data } = await firstValueFrom(
-        this.httpService.post(
-          `${TENANT_API_BASE_URL}/token-serials/list-tenant-users`,
-          { limit: 1000, tenantId },
-          { headers: this.buildTenantHeaders(token, credential) },
-        ),
-      );
+      const data = await this.cyberRockService.listTenantUsers({ tenantId, limit: 1000 }, { accessToken: token, credential });
+      this.logger.log("SUCCESS::TenantApiService::listTenantUsers", tenantId);
       return data;
     } catch (error: any) {
-      this.logger.error(
-        "listTenantUsers failed",
-        error.response?.data || error.message,
-      );
+      this.logger.error("ERROR::TenantApiService::listTenantUsers", error, tenantId);
       throw new HttpException(
         error.response?.data?.message ||
         error.response?.data ||
@@ -644,21 +554,14 @@ export class TenantApiService {
   }
 
   async listIotUsers(tenantId: string, tenantUserIds: string[]): Promise<any> {
+    this.logger.log("START::TenantApiService::listIotUsers", tenantId, tenantUserIds);
     const { token, credential } = await this.getAccessToken(tenantId);
     try {
-      const { data } = await firstValueFrom(
-        this.httpService.post(
-          `${TENANT_API_BASE_URL}/token-serials/list-iot-users`,
-          { limit: 1000, tenantUserIds },
-          { headers: this.buildTenantHeaders(token, credential) },
-        ),
-      );
+      const data = await this.cyberRockService.listIotUsers({ tenantUserIds, limit: 1000 }, { accessToken: token, credential });
+      this.logger.log("SUCCESS::TenantApiService::listIotUsers", tenantId, tenantUserIds);
       return data;
     } catch (error: any) {
-      this.logger.error(
-        "listIotUsers failed",
-        error.response?.data || error.message,
-      );
+      this.logger.error("ERROR::TenantApiService::listIotUsers", error, tenantId, tenantUserIds);
       throw new HttpException(
         error.response?.data?.message ||
         error.response?.data ||
@@ -668,37 +571,41 @@ export class TenantApiService {
     }
   }
 
+
   async updateTokenSerialLifecycle(
     tenantId: string,
     tid: string,
-    payload: {
-      status: string;
-      applyToAllDelegates: boolean;
-      iotId?: string;
-      tenantId: string;
-    },
+    payload: UpdateTokenSerial,
   ): Promise<any> {
+    this.logger.log("START::TenantApiService::updateTokenSerialLifecycle", tenantId, tid, payload);
     const { token, credential } = await this.getAccessToken(tenantId);
     try {
-      const { data } = await firstValueFrom(
-        this.httpService.put(
-          `${TENANT_API_BASE_URL}/token-serials/${tid}`,
-          payload,
-          { headers: this.buildTenantHeaders(token, credential) },
-        ),
-      );
+      const data = await this.cyberRockService.updateTokenSerials(tid, { accessToken: token, credential }, payload);
+      this.logger.log("SUCCESS::TenantApiService::updateTokenSerialLifecycle", tenantId, tid, payload);
       return data;
     } catch (error: any) {
-      this.logger.error(
-        "updateTokenSerialLifecycle failed",
-        error.response?.data || error.message,
-      );
+      this.logger.error("ERROR::TenantApiService::updateTokenSerialLifecycle", error, tenantId, tid, payload);
       throw new HttpException(
         error.response?.data?.message ||
         error.response?.data ||
         "updateTokenSerialLifecycle failed",
         error.response?.status || 500,
       );
+    }
+  }
+
+  private async setCachedToken(
+    tenantId: string,
+    token: string,
+    expiresAt: number,
+  ): Promise<void> {
+    try {
+      this.logger.log("START::TenantApiService::setCachedToken", tenantId, token, expiresAt);
+      this.tokenCache.set(tenantId, { token, expiresAt });
+      this.logger.log("SUCCESS::TenantApiService::setCachedToken", tenantId, token, expiresAt);
+    } catch (error) {
+      this.logger.error("ERROR::TenantApiService::setCachedToken", error, tenantId, token, expiresAt);
+      throw error;
     }
   }
 }

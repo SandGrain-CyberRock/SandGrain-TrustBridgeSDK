@@ -6,6 +6,7 @@ import {
   DeleteDateColumn,
   OneToMany,
 } from "typeorm";
+
 import { RolePermission } from "./role-permission.entity";
 
 @Entity("permissions")

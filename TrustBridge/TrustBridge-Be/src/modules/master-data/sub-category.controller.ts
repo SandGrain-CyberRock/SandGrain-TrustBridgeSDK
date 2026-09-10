@@ -20,11 +20,12 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
-import { Permissions } from "../../common/decorators";
-import { SubCategoryService } from "./sub-category.service";
+
 import { CreateSubCategoryDto } from "./dto/create-sub-category.dto";
 import { UpdateSubCategoryDto } from "./dto/update-sub-category.dto";
+import { SubCategoryService } from "./sub-category.service";
+import { Permissions } from "../../common/decorators";
+import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
 
 @ApiTags("Master Data - Sub-Categories")
 @ApiBearerAuth("JWT-auth")

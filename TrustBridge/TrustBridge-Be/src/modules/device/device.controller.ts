@@ -18,7 +18,6 @@ import {
   Req,
   HttpCode,
 } from "@nestjs/common";
-import { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import {
   ApiTags,
@@ -30,16 +29,20 @@ import {
   ApiConsumes,
   ApiQuery,
 } from "@nestjs/swagger";
-import { DeviceService } from "./device.service";
+
+import { Response } from "express";
+import { ApiKeyGuard } from "src/common/guards/api-key.guard";
+
 import { DeviceAuthService } from "./device-auth.service";
-import { CreateDeviceDto } from "./dto/create-device.dto";
-import { UpdateDeviceDto } from "./dto/update-device.dto";
+import { DeviceService } from "./device.service";
 import {
   BulkImportDeviceDto,
   BulkImportResponseDto,
 } from "./dto/bulk-import-device.dto";
+import { CreateDeviceDto } from "./dto/create-device.dto";
+import { FindLogsDeviceDto } from "./dto/find-logs-device.dto";
+import { UpdateDeviceDto } from "./dto/update-device.dto";
 import { parseBulkImport } from "./utils/parse-bulk-import";
-import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
 import { Permissions, Public } from "../../common/decorators";
 import {
   DeviceResponseDto,
@@ -51,6 +54,7 @@ import {
   ErrorResponseDto,
   ConflictResponseDto,
 } from "../../common/dto";
+import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
 
 @ApiTags("Devices")
 @ApiBearerAuth("JWT-auth")
@@ -156,7 +160,7 @@ export class DeviceController {
 
     const parsed = parseBulkImport(file.buffer);
 
-    const result = await this.deviceService.bulkImportV2(parsed, tenantId);
+    const result = await this.deviceService.bulkImport(parsed, tenantId);
     return {
       data: {
         count: result.count,
@@ -410,6 +414,7 @@ export class DeviceController {
 
   @Public()
   @Get("credentials-by-tid")
+  @UseGuards(ApiKeyGuard)
   @ApiOperation({
     summary: "Get device credentials by TID (internal SDK use)",
     description: "Returns device group credentials for a given TID. Used by the cloud SDK to authenticate with CyberRock. No JWT required.",
@@ -813,8 +818,43 @@ export class DeviceController {
     description: "Forbidden - Missing required permission",
     type: ForbiddenResponseDto,
   })
-  findLogs(@Param("id", ParseIntPipe) id: number) {
-    return this.deviceAuthService.findLogsByDeviceId(id);
+  findLogs(@Param("id", ParseIntPipe) id: number, @Query() query: FindLogsDeviceDto) {
+    return this.deviceAuthService.findLogsByDeviceId(id, query);
+  }
+
+
+
+
+
+  @Get(":tid/device-last-successful-login")
+  @Permissions("device:retrieve")
+  @ApiOperation({
+    summary: "Get device last login by TID",
+    description:
+      "Retrieve the last login time for a specific device by its TID. Requires `device:retrieve` permission.",
+  })
+  @ApiParam({
+    name: "tid",
+    type: String,
+    description: "Device TID",
+    example: "1234567890",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Device last login retrieved successfully",
+  })
+  @ApiResponse({
+    status: 401,
+    description: "Unauthorized - Invalid or missing JWT token",
+    type: UnauthorizedResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: "Forbidden - Missing required permission",
+    type: ForbiddenResponseDto,
+  })
+  findLastLogin(@Param("tid") tid: string) {
+    return this.deviceAuthService.findLastLoginByTid(tid);
   }
 
   @Get(":id/tid-status")

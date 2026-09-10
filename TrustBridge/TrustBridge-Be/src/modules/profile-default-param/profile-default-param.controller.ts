@@ -17,11 +17,12 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
-import { Permissions } from "../../common/decorators";
-import { ProfileDefaultParamService } from "./profile-default-param.service";
+
 import { CreateProfileParamDto } from "./dto/create-profile-param.dto";
 import { UpdateProfileParamDto } from "./dto/update-profile-param.dto";
+import { ProfileDefaultParamService } from "./profile-default-param.service";
+import { Permissions } from "../../common/decorators";
+import { JwtAuthGuard, PermissionsGuard } from "../../common/guards";
 
 @ApiTags("Profile Default Params")
 @ApiBearerAuth("JWT-auth")

@@ -3,10 +3,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 
 import { Repository } from "typeorm";
 
+import { DashboardStats } from "./types";
 import { DeviceLog } from "../../entities/device-log.entity";
 import { Device } from "../../entities/device.entity";
 import { SystemActivity } from "../../entities/system-activity.entity";
-import { DashboardStats } from "./types";
 
 @Injectable()
 export class DashboardService {

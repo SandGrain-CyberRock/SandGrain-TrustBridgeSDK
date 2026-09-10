@@ -1,8 +1,9 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { DeviceGroup } from "../../entities/device-group.entity";
+
 import { DeviceGroupController } from "./device-group.controller";
 import { DeviceGroupService } from "./device-group.service";
+import { DeviceGroup } from "../../entities/device-group.entity";
 import { SystemActivityModule } from "../system-activity/system-activity.module";
 import { TenantApiModule } from "../tenant-api/tenant-api.module";
 

@@ -1,5 +1,6 @@
-import { IsArray, IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+
+import { IsArray, IsNumber } from 'class-validator';
 
 export class AssignRolesDto {
   @ApiProperty({ example: [1, 2], description: 'Role IDs to assign' })

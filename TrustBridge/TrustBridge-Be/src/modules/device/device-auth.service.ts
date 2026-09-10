@@ -1,16 +1,23 @@
-import { forwardRef, Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { LessThanOrEqual, Repository } from "typeorm";
 import { HttpService } from "@nestjs/axios";
+import { InjectQueue } from "@nestjs/bullmq";
+import { forwardRef, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+
+import { Queue, QueueEvents } from "bullmq";
 import { firstValueFrom } from "rxjs";
-import { Device } from "../../entities/device.entity";
+import { JOB_AUTH_TIMEOUT, JOB_ID_LIFECYCLE_SCAN, JOB_LIFECYCLE_AUTH, JOB_LIFECYCLE_SCAN, JOB_MQTT_REQUEST, QUEUE_AUTH_TIMEOUT, QUEUE_LIFECYCLE_AUTH, QUEUE_LIFECYCLE_SCAN, QUEUE_MQTT_REQUEST } from "src/common/queue/auth/constant";
+import { AuthTimeoutJobData, MqttRequestJobData } from "src/common/queue/auth/types";
+import { LessThanOrEqual, Repository } from "typeorm";
+
+import { DeviceService } from "./device.service";
 import { DeviceLog } from "../../entities/device-log.entity";
 import { DeviceProfile } from "../../entities/device-profile.entity";
+import { Device } from "../../entities/device.entity";
 import { TenantUserCredential } from "../../entities/tenant-user-credential.entity";
-import { TenantApiService } from "../tenant-api/tenant-api.service";
-import { SystemActivityService } from "../system-activity/system-activity.service";
 import { MqttService } from "../mqtt/mqtt.service";
-import { DeviceService } from "./device.service";
+import { FindLogsDeviceDto } from "./dto/find-logs-device.dto";
+import { SystemActivityService } from "../system-activity/system-activity.service";
+import { TenantApiService } from "../tenant-api/tenant-api.service";
 
 const TENANT_API_BASE_URL = process.env.TENANT_API_BASE_URL || "https://tenant-api.sandbox.sandgrain.io/api";
 const MQTT_RETRY_ATTEMPTS = 2;
@@ -18,7 +25,7 @@ const MQTT_RETRY_DELAY_MS = 3000;
 const WHITELIST_CHUNK_SIZE = 1000;
 
 @Injectable()
-export class DeviceAuthService implements OnModuleInit {
+export class DeviceAuthService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DeviceAuthService.name);
   /**
    * In-memory attempt tracker for gateway sessions NOT triggered via run_auth_init
@@ -33,6 +40,9 @@ export class DeviceAuthService implements OnModuleInit {
   private readonly lifecycleDeviceIds = new Set<number>();
   /** Prevents overlapping lifecycle scans */
   private lifecycleScanRunning = false;
+
+  private mqttRequestQueueEvents: QueueEvents;
+
 
   /**
    * Schedules the next lifecycle auth for a device based on its profile's auth_frequency.
@@ -61,17 +71,28 @@ export class DeviceAuthService implements OnModuleInit {
     private deviceRepo: Repository<Device>,
     @InjectRepository(DeviceLog)
     private logRepo: Repository<DeviceLog>,
-    @InjectRepository(DeviceProfile)
-    private deviceProfileRepo: Repository<DeviceProfile>,
     private httpService: HttpService,
     private tenantApiService: TenantApiService,
     private systemActivityService: SystemActivityService,
     private mqttService: MqttService,
     @Inject(forwardRef(() => DeviceService))
     private deviceService: DeviceService,
-  ) { }
+    @InjectQueue(QUEUE_LIFECYCLE_SCAN) private lifecycleScanQueue: Queue,
+    @InjectQueue(QUEUE_MQTT_REQUEST) private mqttRequestQueue: Queue,
+    @InjectQueue(QUEUE_AUTH_TIMEOUT) private authTimeoutQueue: Queue,
+    @InjectQueue(QUEUE_LIFECYCLE_AUTH) private lifecycleAuthQueue: Queue,
 
-  onModuleInit(): void {
+  ) {
+    this.mqttRequestQueueEvents = new QueueEvents(QUEUE_MQTT_REQUEST, {
+      connection: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD || undefined,
+      },
+    });
+  }
+
+  async onModuleInit(): Promise<void> {
     // Register presence callbacks so MqttService can notify us when devices come online/offline
     this.mqttService.registerPresenceCallbacks(
       (tid) => this.handleDeviceOnline(tid).catch(() => { }),
@@ -97,10 +118,25 @@ export class DeviceAuthService implements OnModuleInit {
     });
 
     // Start periodic lifecycle auth scanner (runs every 10s, near-zero load)
-    setInterval(() => this.runLifecycleAuthScan().catch(() => { }), 10_000);
+    // setInterval(() => this.runLifecycleAuthScan().catch(() => { }), 10_000);
+    await this.lifecycleScanQueue.upsertJobScheduler(
+      JOB_ID_LIFECYCLE_SCAN,
+      { every: 10_000 },
+      {
+        name: JOB_LIFECYCLE_SCAN,
+        data: {},
+        opts: {
+          removeOnComplete: true,
+          removeOnFail: true,
+        },
+      },
+    );
     this.logger.log("Lifecycle auth scanner started (10s interval)");
   }
 
+  async onModuleDestroy(): Promise<void> {
+    await this.mqttRequestQueueEvents.close();
+  }
   // ─── Lifecycle Auth Scanner ────────────────────────────────────────────────
 
   /**
@@ -113,7 +149,7 @@ export class DeviceAuthService implements OnModuleInit {
    *  - If failed_auth_attempts >= profile.max_failed_auth_attempts → set is_active = false
    *  - Schedule next_lifecycle_auth_at = now + profile.auth_frequency
    */
-  private async runLifecycleAuthScan(): Promise<void> {
+  async runLifecycleAuthScan(): Promise<void> {
     if (this.lifecycleScanRunning) return;
     this.lifecycleScanRunning = true;
     try {
@@ -128,16 +164,17 @@ export class DeviceAuthService implements OnModuleInit {
       });
 
       if (dueDevices.length === 0) return;
-
-      this.logger.log(`Lifecycle scan: ${dueDevices.length} device(s) due for re-auth`);
-
-      for (const device of dueDevices) {
-        try {
-          await this.processLifecycleAuth(device);
-        } catch (err: any) {
-          this.logger.error(`Lifecycle auth error for device ${device.device_id}: ${err.message}`);
-        }
-      }
+      await this.lifecycleAuthQueue.addBulk(
+        dueDevices.map((device) => ({
+          name: JOB_LIFECYCLE_AUTH,
+          data: { deviceId: device.device_id },
+          opts: {
+            jobId: `lifecycle-device-${device.device_id}`,
+            removeOnComplete: true,
+            removeOnFail: false,
+          },
+        })),
+      );
     } finally {
       this.lifecycleScanRunning = false;
     }
@@ -314,6 +351,9 @@ export class DeviceAuthService implements OnModuleInit {
     const isTerminalFail = log.step === "failed" && log.status === "fail";
 
     if (isTerminalOk || isTerminalFail) {
+      const jobId = `auth-timeout-${deviceId}-${attemptNumber}`;
+      const timeoutJob = await this.authTimeoutQueue.getJob(jobId);
+      if (timeoutJob) await timeoutJob.remove();
       this._gwSessionAttempt.delete(deviceId);
 
       // Close run_auth_init log (TrustBridge-triggered runs)
@@ -783,53 +823,18 @@ export class DeviceAuthService implements OnModuleInit {
       attemptNumber,
       "authentication",
     );
-
-    // The v3 device SDK never publishes the auth result back via MQTT,
-    // so we auto-close this log after 90s if it is still in_progress.
-    setTimeout(async () => {
-      try {
-        const log = await this.logRepo.findOne({
-          where: {
-            device_id: deviceId,
-            step: "run_auth_init",
-            attempt_number: attemptNumber,
-            status: "in_progress",
-          } as any,
-        });
-        if (log) {
-          await this.updateLog(
-            deviceId,
-            "run_auth_init",
-            "failed",
-            "Authentication timed out — no result received from device",
-            undefined,
-            90000,
-          );
-          this.logger.warn(
-            `run_auth_init timed out for device=${deviceId} attempt=${attemptNumber}`,
-          );
-
-          // Also move the device itself to a terminal failure state — same as
-          // handleGwLog does when it sees `failed fail`. Without this, the log
-          // entry shows "Authentication timed out" but the device stays in
-          // inprogress/idle and never appears in the Rejected Devices card.
-          // handleAuthFailure handles lifecycle vs non-lifecycle correctly,
-          // bumps failed_auth_attempts, flips is_active=false, and writes the
-          // top-level SystemActivity entry.
-          const deviceRow = await this.deviceRepo.findOne({
-            where: { device_id: deviceId },
-          });
-          if (deviceRow) {
-            await this.handleAuthFailure(
-              deviceRow,
-              "Authentication timed out — no result received from device",
-            );
-          }
-        }
-      } catch (e) {
-        // ignore — best effort cleanup
-      }
-    }, 90_000);
+    const jobId = `auth-timeout-${deviceId}-${attemptNumber}`;
+    await this.authTimeoutQueue.add(
+      JOB_AUTH_TIMEOUT,
+      { deviceId, attemptNumber } satisfies AuthTimeoutJobData,
+      {
+        delay: 90_000,
+        jobId,
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    );
+    this.logger.log("SUCCESS::DeviceAuthLoggerService::createRunAuthLog", deviceId, label, attemptNumber);
   }
 
   async processOnlineDeviceAuth(device: Device, faultMode: 0 | 1 | 2 = 0, attemptNumber?: number): Promise<void> {
@@ -1068,6 +1073,12 @@ export class DeviceAuthService implements OnModuleInit {
     credential: TenantUserCredential,
     attemptNumber: number,
   ): Promise<void> {
+    // Cancel any pending timeout job — auth has a result now
+    const jobId = `auth-timeout-${device.device_id}-${attemptNumber}`;
+    const timeoutJob = await this.authTimeoutQueue.getJob(jobId);
+    if (timeoutJob) await timeoutJob.remove();
+
+    // process normally 
     if (auth_status === "AUTH_OK") {
       const isLifecycle = this.lifecycleDeviceIds.has(device.device_id);
       if (isLifecycle) this.lifecycleDeviceIds.delete(device.device_id);
@@ -1211,13 +1222,18 @@ export class DeviceAuthService implements OnModuleInit {
     let lastError: Error | undefined;
     for (let attempt = 1; attempt <= MQTT_RETRY_ATTEMPTS; attempt++) {
       try {
-        return await this.mqttService.request(
-          tid,
-          action,
-          msgType,
-          payload,
-          credentials,
+        const job = await this.mqttRequestQueue.add(
+          JOB_MQTT_REQUEST,
+          { tid, action, msgType, payload, credentials } satisfies MqttRequestJobData,
+          {
+            attempts: MQTT_RETRY_ATTEMPTS,
+            backoff: { type: 'fixed', delay: MQTT_RETRY_DELAY_MS },
+            removeOnComplete: true,
+            removeOnFail: true,
+          },
         );
+        const result = await job.waitUntilFinished(this.mqttRequestQueueEvents);
+        return result;
       } catch (err: any) {
         lastError = err;
         if (attempt < MQTT_RETRY_ATTEMPTS) {
@@ -1580,10 +1596,171 @@ export class DeviceAuthService implements OnModuleInit {
     return this.logRepo.find({ order: { created_at: "DESC" } });
   }
 
-  async findLogsByDeviceId(deviceId: number): Promise<DeviceLog[]> {
-    return this.logRepo.find({
-      where: { device_id: deviceId },
-      order: { log_id: "DESC" },
+  async findLogsByDeviceId(
+    deviceId: number,
+    query: FindLogsDeviceDto
+  ): Promise<{
+    data: DeviceLog[];
+    meta: { page: number; limit: number; totalRuns: number; totalPages: number };
+  }> {
+    const { page = 1, limit = 50 } = query;
+    const offset = (page - 1) * limit;
+
+    const [rawData, countResult] = await Promise.all([
+      this.logRepo.query(
+        `
+        WITH run_groups AS (
+          SELECT
+            COALESCE(process_type, 'authentication') AS process_type,
+            COALESCE(attempt_number, 1) AS attempt_number,
+            MAX(log_id) AS max_log_id,
+            -- recency_rank: 1 = newest run. Used purely for pagination (which page a run lands on).
+            DENSE_RANK() OVER (ORDER BY MAX(log_id) DESC) AS recency_rank,
+            -- display_number: 1 = oldest run, increasing toward the newest.
+            -- This is the true "Attempt N" label — computed once here, never in the frontend.
+            DENSE_RANK() OVER (ORDER BY MAX(log_id) ASC) AS display_number
+          FROM tb_device_log
+          WHERE device_id = ?
+          GROUP BY COALESCE(process_type, 'authentication'), COALESCE(attempt_number, 1)
+        )
+        SELECT l.*, rg.display_number AS display_number
+        FROM tb_device_log l
+        JOIN run_groups rg
+          ON COALESCE(l.process_type, 'authentication') = rg.process_type
+         AND COALESCE(l.attempt_number, 1) = rg.attempt_number
+        WHERE l.device_id = ?
+          AND rg.recency_rank BETWEEN ? AND ?
+        ORDER BY l.log_id DESC
+        `,
+        [deviceId, deviceId, offset + 1, offset + limit],
+      ),
+      this.logRepo.query(
+        `
+        SELECT COUNT(*) AS totalRuns FROM (
+          SELECT 1
+          FROM tb_device_log
+          WHERE device_id = ?
+          GROUP BY COALESCE(process_type, 'authentication'), COALESCE(attempt_number, 1)
+        ) t
+        `,
+        [deviceId],
+      ),
+    ]);
+
+    const data = rawData.map((row: any) => ({
+      ...row,
+      display_number: Number(row.display_number),
+    }));
+
+    const total = Number(countResult[0].totalRuns);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    return { data, meta: { page, limit, totalRuns: total, totalPages } };
+  }
+
+  async findLastLoginByTid(tid: string) {
+    const validTid = this.deviceService.toValidLowerTid(tid);
+    if (!validTid) return { success: false, message: 'Invalid TID' };
+    const device = await this.deviceRepo.findOne({ where: { token_id: tid } });
+    if (!device) return { success: false, message: 'Device not found' };
+
+    const log = await this.logRepo.findOne({
+      where: { device_id: device.device_id, step: 'auth_result', status: 'success' },
+      order: { created_at: 'DESC' },
     });
+
+    if (!log) return { success: false, message: 'No login attempt found' };
+    return {
+      success: true,
+      data: {
+        lastSuccessfulLoginAt: log.created_at
+      }
+    }
+  }
+
+  async findAttemptLog(deviceId: number, step: string, attemptNumber: number, status: string): Promise<DeviceLog | null> {
+    try {
+      this.logger.log("START::DeviceAuthLoggerService::findAttemptLog", deviceId, step, attemptNumber, status);
+      const log = await this.logRepo.findOne({
+        where: { device_id: deviceId, step, attempt_number: attemptNumber, status },
+      });
+      this.logger.log("SUCCESS::DeviceAuthLoggerService::findAttemptLog", deviceId, step, attemptNumber, status);
+      return log;
+    } catch (error) {
+      this.logger.error("ERROR::DeviceAuthLoggerService::findAttemptLog", error, deviceId, step, attemptNumber, status);
+      throw error;
+    }
+  }
+
+
+
+  async handleAuthTimeout(deviceId: number, attemptNumber: number): Promise<void> {
+    try {
+      this.logger.log("START::DeviceAuthScannerService::handleAuthTimeout", deviceId, attemptNumber);
+      const log = await this.findAttemptLog(deviceId, 'run_auth_init', attemptNumber, 'in_progress');
+      if (!log) return;
+      await this.updateLog(
+        deviceId,
+        'run_auth_init',
+        'failed',
+        'Authentication timed out — no result received from device',
+        undefined,
+        90_000,
+      );
+      this.logger.warn(`run_auth_init timed out for device=${deviceId} attempt=${attemptNumber}`);
+
+      const deviceRow = await this.deviceRepo.findOne({ where: { device_id: deviceId } });
+      if (deviceRow) {
+        await this.handleAuthFailure(deviceRow, 'Authentication timed out — no result received from device');
+      }
+      this.logger.log("SUCCESS::DeviceAuthScannerService::handleAuthTimeout", deviceId, attemptNumber);
+    } catch (error) {
+      this.logger.error("ERROR::DeviceAuthScannerService::handleAuthTimeout", error, deviceId, attemptNumber);
+      throw error;
+    }
+  }
+  async processOnlineDeviceAuthViaQueue(deviceId: number): Promise<void> {
+    try {
+      this.logger.log("START::DeviceAuthService::processOnlineDeviceAuthViaQueue", deviceId);
+      const device = await this.deviceRepo.findOne({ where: { device_id: deviceId } });
+      await this.processOnlineDeviceAuth(device);
+      this.logger.log("SUCCESS::DeviceAuthService::processOnlineDeviceAuthViaQueue", deviceId);
+    } catch (error) {
+      this.logger.error("ERROR::DeviceAuthService::processOnlineDeviceAuthViaQueue", error, deviceId);
+      throw error;
+    }
+  }
+
+  async processOfflineDeviceAuthViaQueue(deviceId: number, offlineCw: string, offlineRw: string): Promise<void> {
+    try {
+      this.logger.log("START::DeviceAuthService::processOfflineDeviceAuthViaQueue", deviceId, offlineCw, offlineRw);
+      const device = await this.deviceRepo.findOne({ where: { device_id: deviceId } });
+      await this.processOfflineDeviceAuth(device, offlineCw, offlineRw);
+      this.logger.log("SUCCESS::DeviceAuthService::processOfflineDeviceAuthViaQueue", deviceId, offlineCw, offlineRw);
+    } catch (error) {
+      this.logger.error("ERROR::DeviceAuthService::processOfflineDeviceAuthViaQueue", error, deviceId, offlineCw, offlineRw);
+      throw error;
+    }
+  }
+
+  // bull hits this while running the auth scan per device
+  async processLifecycleAuthById(deviceId: number): Promise<void> {
+    try {
+      this.logger.log("START::DeviceAuthService::processLifecycleAuthById", deviceId);
+
+      const device = await this.deviceRepo.findOne({
+        where: { device_id: deviceId, is_active: true, status: 'authenticated' },
+        relations: ['deviceGroup', 'deviceProfile'],
+      });
+      if (!device) {
+        this.logger.warn(`WARN::DeviceAuthService::processLifecycleAuthById: device ${deviceId} no longer active/authenticated — skipping`);
+        return;
+      }
+      await this.processLifecycleAuth(device);
+      this.logger.log("SUCCESS::DeviceAuthService::processLifecycleAuthById", deviceId);
+    } catch (error) {
+      this.logger.error("ERROR::DeviceAuthService::processLifecycleAuthById", error, deviceId);
+      throw error;
+    }
   }
 }

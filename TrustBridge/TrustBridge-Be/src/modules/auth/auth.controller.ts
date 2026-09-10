@@ -6,13 +6,15 @@ import {
   ApiBearerAuth,
   ApiBody,
 } from "@nestjs/swagger";
+
 import { AuthService } from "./auth.service";
-import { LoginDto } from "./dto/login.dto";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto";
+import { InitializeSystemDto } from "./dto/initialize-system.dto";
+import { LoginDto } from "./dto/login.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { SetPasswordDto } from "./dto/set-password.dto";
 import { Public, CurrentUser } from "../../common/decorators";
-import { JwtAuthGuard, RolesGuard } from "../../common/guards";
 import {
   LoginResponseDto,
   ProfileResponseDto,
@@ -23,8 +25,7 @@ import {
   NotFoundResponseDto,
   ConflictResponseDto,
 } from "../../common/dto";
-import { ChangePasswordDto } from "./dto/change-password.dto";
-import { InitializeSystemDto } from "./dto/initialize-system.dto";
+import { JwtAuthGuard, RolesGuard } from "../../common/guards";
 
 @ApiTags("Auth")
 @Controller("auth")

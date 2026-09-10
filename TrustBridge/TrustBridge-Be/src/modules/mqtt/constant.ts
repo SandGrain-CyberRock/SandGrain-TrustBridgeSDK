@@ -1,0 +1,1 @@
+export const SHARE_GROUP = "auth-group";

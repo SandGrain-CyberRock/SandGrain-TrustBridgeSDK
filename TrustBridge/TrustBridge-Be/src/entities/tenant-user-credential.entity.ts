@@ -1,3 +1,4 @@
+import { encryptedTransformer } from 'src/common/helpers';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -7,6 +8,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
 import { Tenant } from './tenant.entity';
 
 @Entity('cr_tenant_user_credential')
@@ -27,13 +29,13 @@ export class TenantUserCredential {
   @Column()
   email: string;
 
-  @Column()
+  @Column({ transformer: encryptedTransformer })
   password: string;
 
   @Column()
   cf_access_client_id: string;
 
-  @Column()
+  @Column({ transformer: encryptedTransformer })
   cf_access_client_secret: string;
 
   @CreateDateColumn()

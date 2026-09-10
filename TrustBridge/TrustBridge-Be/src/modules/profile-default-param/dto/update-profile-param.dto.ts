@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
-import { IsOptional, IsString, IsEnum, IsInt, Min, MaxLength, MinLength } from "class-validator";
+
 import { Type } from "class-transformer";
+import { IsOptional, IsString, IsEnum, IsInt, Min, MaxLength, MinLength } from "class-validator";
+
 import { QosLevel, TlsType, ClaimType } from "../enums/profile-param.enum";
 
 export class UpdateProfileParamDto {

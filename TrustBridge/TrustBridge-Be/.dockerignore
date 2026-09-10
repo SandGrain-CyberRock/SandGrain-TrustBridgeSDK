@@ -7,3 +7,4 @@ dist
 backend.log
 .DS_Store
 coverage
+npm-debug.log
