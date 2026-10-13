@@ -54,3 +54,6 @@ trustbridge_whitelist.txt
 ../sandgrain-sdk-trustbridge/**/*.d
 ../sandgrain-sdk-trustbridge/**/build/
 ../sandgrain-sdk-trustbridge/**/dist/
+
+docker/certs
+docker/certs/*

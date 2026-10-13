@@ -276,7 +276,7 @@ const getDeviceLogs = (id: number, page: number, limit: number) => {
 export const useGetDeviceLogs = (
   id: number | null,
   page: number,
-  limit = 100,
+  limit = 10,
 ) => {
   return useQuery({
     queryKey: [DEVICE_API.GET_LOGS, id, page, limit],

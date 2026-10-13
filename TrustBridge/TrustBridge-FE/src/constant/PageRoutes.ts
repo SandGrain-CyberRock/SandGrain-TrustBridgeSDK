@@ -29,4 +29,6 @@ export const PAGE_ROUTES = {
   ROLES_PERMISSIONS: '/roles-and-permissions',
   SETTINGS: '/settings',
   PROFILE: '/profile',
+
+  MQTT_DOCS: '/mqtt-docs',
 };

@@ -450,7 +450,7 @@ export const ViewDeviceForm = () => {
   const { data: deviceDetails, isLoading } = useGetDeviceById(deviceId);
 
   const [logPage, setLogPage] = useState(1);
-  const LOGS_PER_PAGE = 50;
+  const LOGS_PER_PAGE = 10;
 
   const { data: logsResult, isLoading: logsLoading } = useGetDeviceLogs(
     deviceId,

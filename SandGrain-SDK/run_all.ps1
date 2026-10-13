@@ -10,8 +10,11 @@
 #                                   #   the TrustBridge cloud (BE-backed credentials)
 #     .\run_all.ps1 --no-build      # skip `make`, use existing binaries
 #     .\run_all.ps1 --reinstall     # force reinstall of Python deps
+#     .\run_all.ps1 --spi           # device crypto chip on SPI; Raspberry Pi only
 #
-# Any args are forwarded as-is into WSL (run_all.sh) via @args.
+# Any args are forwarded as-is into WSL (run_all.sh) via @args. NOTE: --spi needs
+# a real SPI header (a Raspberry Pi); it won't work from Windows/WSL, which has no
+# /dev/spidev — use run_all.sh --spi on the Pi itself.
 #
 $ErrorActionPreference = 'Stop'
 

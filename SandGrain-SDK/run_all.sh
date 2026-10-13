@@ -52,12 +52,16 @@ WHITELIST_FILE="$GW_DIR/trustbridge_whitelist.txt"   # static gateway whitelist 
 DO_BUILD=1
 DETECT_TID=1
 RUN_CLOUD=1
+USE_SPI=0                  # --spi: crypto chip on the Pi SPI header, not USB
+CS_HAT=0                   # --spi-hat: software chip-select on GPIO22 (token HAT)
 TRACE=1; TRACE_DEBUG=0     # traceability is ON by default (INFO); --debug adds request_data
 for arg in "$@"; do
   case "$arg" in
     --no-build)      DO_BUILD=0 ;;
     --no-detect-tid) DETECT_TID=0 ;;
     --no-cloud)      RUN_CLOUD=0 ;;
+    --spi)           USE_SPI=1 ;;
+    --spi-hat)       USE_SPI=1; CS_HAT=1 ;;
     --info)          TRACE=1 ;;   # INFO is the default; accepted for back-compat
     --debug)         TRACE=1; TRACE_DEBUG=1 ;;
     -h|--help)
@@ -75,6 +79,13 @@ Usage: bash run_all.sh [--no-build] [--no-detect-tid] [--no-cloud]
                    Also runs the DEVICE in --listen mode (BE-driven via
                    cmd/run_auth from the FE/BE) with the interactive menu still
                    available in parallel.
+  --spi            Crypto chip on the Pi SPI header (/dev/spidev0.0), not the USB
+                   dongle: enables SPI and builds the device with DEV_SPI=1
+                   (Linux/Raspberry Pi only). Env: SPI_DEV (/dev/spidev0.0),
+                   SPI_SPEED_HZ (1000000).
+  --spi-hat        Like --spi, but for the SandGrain token HAT whose chip-select
+                   is on GPIO22 (pin 15), not CE0 - sets SPI_CS_GPIO=22 (software
+                   CS). Plain --spi stays on hardware CE0 (jumper on pin 24).
   --debug          Add DEBUG-level detail to the trace: the masked `request_data`
                    field on each line (sets TRACE_LOG_DEBUG), ALONGSIDE the info
                    fields. Local traceability is ON BY DEFAULT at INFO level (sets
@@ -504,8 +515,26 @@ fi
 # --------------------------------------------------------------------------
 # 4) Build firmware
 # --------------------------------------------------------------------------
+# --spi: crypto chip on the Pi SPI header. Enable spidev BEFORE the build + the
+# BIST TID probe below, so both see /dev/spidev0.0. Builds the device DEV_SPI=1.
+if [[ "$USE_SPI" == 1 ]]; then
+  [[ "$(uname -s)" == "Linux" ]] || die "--spi is Linux/Raspberry Pi only (needs /dev/spidev)."
+  if [[ ! -e /dev/spidev0.0 ]] && command -v raspi-config >/dev/null 2>&1; then
+    say "Enabling SPI (raspi-config nonint do_spi 0) ..."
+    sudo raspi-config nonint do_spi 0 || warn "raspi-config do_spi failed — enable SPI manually."
+  fi
+  if getent group spi >/dev/null 2>&1 && ! id -nG | grep -qw spi; then
+    sudo usermod -aG spi "$USER" && warn "Added $USER to 'spi' group — reboot/re-login once (device also runs under sudo here)."
+  fi
+  if [[ -e /dev/spidev0.0 ]]; then
+    say "Crypto chip on SPI: ${SPI_DEV:-/dev/spidev0.0} @ ${SPI_SPEED_HZ:-1000000} Hz ($([[ "$CS_HAT" == 1 ]] && echo "HAT: software CS on GPIO22" || echo "hardware CS / CE0"))"
+  else
+    warn "SPI enabled but /dev/spidev0.0 not present yet — reboot once, then re-run."
+  fi
+fi
+DEV_MK_ARGS=""; [[ "$USE_SPI" == 1 ]] && DEV_MK_ARGS="DEV_SPI=1"
 if [[ "$DO_BUILD" == 1 ]]; then
-  say "Building device firmware (clean)";  make -C "$DEVICE_DIR" clean; make -C "$DEVICE_DIR"
+  say "Building device firmware (clean)${DEV_MK_ARGS:+ [$DEV_MK_ARGS]}";  make -C "$DEVICE_DIR" clean; make -C "$DEVICE_DIR" $DEV_MK_ARGS
   say "Building gateway firmware (clean)"; make -C "$GW_DIR" clean;     make -C "$GW_DIR"
 else
   say "Skipping build (--no-build)"
@@ -598,6 +627,19 @@ if [[ "$TRACE" == 1 ]]; then
   fi
 fi
 
+# --spi: forward optional SPI overrides to the device (defaults apply otherwise:
+# /dev/spidev0.0 @ 1 MHz). No-op unless the user exported SPI_DEV/SPI_SPEED_HZ.
+DEV_SPI_ENV=""
+if [[ "$USE_SPI" == 1 ]]; then
+  [[ -n "${SPI_DEV:-}" ]]      && DEV_SPI_ENV+="SPI_DEV='$SPI_DEV' "
+  [[ -n "${SPI_SPEED_HZ:-}" ]] && DEV_SPI_ENV+="SPI_SPEED_HZ='$SPI_SPEED_HZ' "
+  # --spi-hat (or an explicit SPI_CS_GPIO) selects the token HAT's software CS
+  # on GPIO22. Unset => hardware CE0 (jumper on pin 24).
+  [[ "$CS_HAT" == 1 && -z "${SPI_CS_GPIO:-}" ]] && SPI_CS_GPIO=22
+  [[ -n "${SPI_CS_GPIO:-}" ]]  && DEV_SPI_ENV+="SPI_CS_GPIO='$SPI_CS_GPIO' "
+  [[ -n "${SPI_CS_CHIP:-}" ]]  && DEV_SPI_ENV+="SPI_CS_CHIP='$SPI_CS_CHIP' "
+fi
+
 write_launcher "$L_GW" "SandGrain GATEWAY" \
   "cd '$GW_DIR'" \
   "${SUDO}env ${GW_TRACE_ENV}MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' MQTT_USER='$MQTT_USERNAME' MQTT_PASS='$MQTT_PASSWORD' BE_URL='$BE_URL_VAL' \$STDBUF ./test_gw 2>&1 | _stamp"
@@ -616,7 +658,7 @@ DEV_LAUNCH_ARGS=""
 # distinct from the MQTT broker host, which may be elsewhere.)
 write_launcher "$L_DEV" "SandGrain DEVICE" \
   "cd '$DEVICE_DIR'" \
-  "${DEV_SUDO}env ${DEV_TRACE_ENV}MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' GW_HOST='127.0.0.1' GW_PORT='8080' \$STDBUF ./test_device${DEV_LAUNCH_ARGS} 2>&1 | _stamp"
+  "${DEV_SUDO}env ${DEV_TRACE_ENV}${DEV_SPI_ENV}MQTT_BROKER='$MQTT_HOST' MQTT_PORT='$MQTT_PORT' GW_HOST='127.0.0.1' GW_PORT='8080' \$STDBUF ./test_device${DEV_LAUNCH_ARGS} 2>&1 | _stamp"
 
 # --------------------------------------------------------------------------
 # 6b) Broker sanity (standalone): the local cloud/gateway/device need a NATIVE

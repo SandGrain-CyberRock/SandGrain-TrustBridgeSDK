@@ -15,8 +15,11 @@
 #     .\run_device.ps1 --menu           # interactive menu only (no BE listener)
 #     .\run_device.ps1 --no-build       # skip `make`, use the existing binary
 #     .\run_device.ps1 --usb 0          # serial suffix (/dev/ttyACM0); skips auto-detect
+#     .\run_device.ps1 --spi            # crypto chip on SPI (/dev/spidev0.0); Raspberry Pi only
 #
-# Any args are forwarded as-is into WSL (run_device.sh) via @args.
+# Any args are forwarded as-is into WSL (run_device.sh) via @args. NOTE: --spi
+# needs a real SPI header (a Raspberry Pi); it won't work from Windows/WSL, which
+# has no /dev/spidev — use run_device.sh --spi on the Pi itself.
 #
 $ErrorActionPreference = 'Stop'
 

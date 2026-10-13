@@ -64,6 +64,21 @@ INC_DIRS := \
     ./fault_injection \
     .
 
+# ================== CRYPTO-CHIP TRANSPORT ==================
+# Default: USB-serial dongle on /dev/ttyACM0 (port_spi_usb.c). `make DEV_SPI=1`
+# (Linux only, e.g. Raspberry Pi): talk to the SGT1001 wired directly to the SPI
+# header via /dev/spidev0.0 (port_spi_dev.c) — same one-frame full-duplex
+# protocol as the nRF54L15 Zephyr port. Independent of the device<->gateway
+# transport (works with the plain TCP transport used on this branch).
+# Env overrides read at runtime: SPI_DEV (default /dev/spidev0.0),
+# SPI_SPEED_HZ (default 1000000). Ported from trustbridge-0.4-BLE.
+ifeq ($(DEV_SPI),1)
+SPI_SRC := port/port_spi_dev.c
+CFLAGS  += -DDEV_SPI=1
+else
+SPI_SRC := port/port_spi_usb.c
+endif
+
 # ================== SOURCES ==================
 SDK_SRCS := \
     $(SDK_DIR)/src/application/api.c \
@@ -86,7 +101,7 @@ POC_SRCS := \
     port/comm_adapter.c \
     port/port_comm_device.c \
     port/port_delay.c \
-    port/port_spi_usb.c \
+    $(SPI_SRC) \
     port/port_random.c \
     port/trace_log.c \
     fault_injection/fi_device.c

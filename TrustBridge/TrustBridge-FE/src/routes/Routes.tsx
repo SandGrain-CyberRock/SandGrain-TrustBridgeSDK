@@ -21,6 +21,7 @@ import { ResetPassword } from '../feature/Auth/screens/ResetPassword';
 import { RolesAndPermissions } from '../feature/RBAC/screen/RolesAndPermissions';
 import { PERMISSIONS } from '../constant/Permission';
 import { TracingLogs } from '../feature/TracingLogs/screens/TracingLogs';
+import MqttDocs from '../feature/docs/mqtt/MqttDocs';
 
 export const allRoutes: Route[] = [
   {
@@ -207,6 +208,20 @@ export const allRoutes: Route[] = [
       },
     ],
   },
+
+  {
+    sectionHeading: 'Documentation',
+    children: [
+      {
+        icon: 'sitemap',
+        name: 'MQTT Docs',
+        route: PAGE_ROUTES.MQTT_DOCS,
+        isVisible: true,
+        element: <MqttDocs />,
+      },
+    ],
+  },
+
   {
     icon: 'logout',
     name: 'Logout',
